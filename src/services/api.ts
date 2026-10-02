@@ -41,6 +41,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 const send = <T>(method: string, path: string, body?: unknown) =>
   request<T>(path, { method, body: body === undefined ? undefined : JSON.stringify(body) });
 
+export interface CrawlStatus {
+  running: boolean;
+  stopRequested?: boolean;
+  added: number;
+  total: number;
+  error?: string;
+  logs: string[];
+}
+
 export const api = {
   stories: () => request<Story[]>('/stories'),
   chapterPage: (storyId: string, offset = 0, limit = 50, q = '') =>
@@ -88,6 +97,9 @@ export const api = {
     crawl: (
       id: string,
       b: { tocUrl: string; linkSelector: string; contentSelector: string; titleSelector?: string; limit?: number },
-    ) => send<{ added: number; logs: string[] }>('POST', `/admin/stories/${id}/crawl`, b),
+    ) => send<{ started: boolean }>('POST', `/admin/stories/${id}/crawl`, b),
+    crawlStatus: (id: string) =>
+      request<CrawlStatus>(`/admin/stories/${id}/crawl-status`),
+    crawlStop: (id: string) => send<{ stopped: boolean }>('POST', `/admin/stories/${id}/crawl-stop`),
   },
 };

@@ -9,7 +9,7 @@ import {
   issueUserSession, clearUserSession, getUserId, requireUser,
 } from './auth';
 import { hashPassword, verifyPassword } from './password';
-import { crawlStory } from './crawler';
+import { crawlStory, startCrawlJob, getCrawlJob, stopCrawlJob, MAX_CRAWL_LIMIT } from './crawler';
 import { renderPage, robots, sitemap } from './seo';
 import type { Story, Chapter, AdSlot } from '../src/types';
 import { slugify, parseRoute, GENRES, genrePath, storyPath, chapterPath } from '../src/routes';
@@ -292,12 +292,14 @@ admin.post('/notifications', (req, res) => {
 });
 
 admin.get('/stories/:id/crawl-config', (req, res) => res.json(db.getCrawlConfig(req.params.id) ?? null));
-admin.post('/stories/:id/crawl', async (req, res) => {
+admin.post('/stories/:id/crawl', (req, res) => {
   const b = req.body || {};
   const tocUrl = safeUrl(b.tocUrl);
   if (!tocUrl) return res.status(400).json({ error: 'Link mục lục không hợp lệ' });
+  if (!db.getStory(req.params.id)) return res.status(404).json({ error: 'Không tìm thấy truyện' });
   try {
-    const result = await crawlStory(
+    // Runs in the background; the admin UI polls /crawl-status for progress.
+    startCrawlJob(
       req.params.id,
       {
         tocUrl,
@@ -305,13 +307,26 @@ admin.post('/stories/:id/crawl', async (req, res) => {
         contentSelector: str(b.contentSelector, 300) || '#chapter-content',
         titleSelector: str(b.titleSelector, 300) || undefined,
       },
-      Math.min(50, Math.max(1, Number(b.limit) || 20)),
+      Math.min(MAX_CRAWL_LIMIT, Math.max(1, Number(b.limit) || 100)),
     );
-    res.json(result);
+    res.status(202).json({ started: true });
   } catch (e: any) {
-    res.status(400).json({ error: e?.message || 'Crawl lỗi' });
+    res.status(409).json({ error: e?.message || 'Crawl lỗi' });
   }
 });
+admin.get('/stories/:id/crawl-status', (req, res) => {
+  const job = getCrawlJob(req.params.id);
+  if (!job) return res.json({ running: false, added: 0, total: 0, logs: [] });
+  res.json({
+    running: job.running,
+    stopRequested: job.stopRequested,
+    added: job.added,
+    total: job.total,
+    error: job.error,
+    logs: job.logs,
+  });
+});
+admin.post('/stories/:id/crawl-stop', (req, res) => res.json({ stopped: stopCrawlJob(req.params.id) }));
 
 api.use('/admin', admin);
 api.use((_req, res) => res.status(404).json({ error: 'Not found' }));
@@ -334,8 +349,9 @@ if (intervalMin > 0) {
     if (running) return;
     running = true;
     for (const { storyId, cfg } of db.listCrawlConfigs()) {
+      if (getCrawlJob(storyId)?.running) continue; // an admin-started crawl is already on it
       try {
-        const r = await crawlStory(storyId, cfg);
+        const r = await crawlStory(storyId, cfg, 100);
         if (r.added) console.log(`[crawler] ${storyId}: +${r.added} chương`);
       } catch (e: any) {
         console.error(`[crawler] ${storyId}:`, e?.message || e);

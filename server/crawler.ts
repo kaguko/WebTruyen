@@ -29,11 +29,21 @@ export interface CrawlResult {
   logs: string[];
 }
 
+export const MAX_CRAWL_LIMIT = 1000;
+const CONCURRENCY = 4; // chapters fetched in parallel per batch (saved in order)
+const BATCH_DELAY_MS = 400; // be polite to the source between batches
+
+interface CrawlOpts {
+  onLog?: (line: string) => void;
+  shouldStop?: () => boolean;
+  onProgress?: (added: number, total: number) => void;
+}
+
 /** Crawl new chapters (by TOC order; chapter N = Nth link) for a story. Only chapters beyond the current count are fetched. */
-export async function crawlStory(storyId: string, cfg: CrawlConfig, limit = 20): Promise<CrawlResult> {
+export async function crawlStory(storyId: string, cfg: CrawlConfig, limit = 20, opts: CrawlOpts = {}): Promise<CrawlResult> {
   const title = getStory(storyId)?.title ?? storyId;
   try {
-    const result = await doCrawl(storyId, cfg, limit);
+    const result = await doCrawl(storyId, cfg, Math.min(MAX_CRAWL_LIMIT, Math.max(1, limit)), opts);
     // A run that stopped on a chapter error is reported as failed even if earlier chapters were saved.
     const failure = result.logs.find((l) => l.startsWith('✗'));
     recordCrawlRun(storyId, title, !failure, result.added, failure ?? `Thêm ${result.added} chương`);
@@ -44,9 +54,64 @@ export async function crawlStory(storyId: string, cfg: CrawlConfig, limit = 20):
   }
 }
 
-async function doCrawl(storyId: string, cfg: CrawlConfig, limit: number): Promise<CrawlResult> {
+// ---- Background jobs: a big crawl takes minutes, so the admin UI starts one and polls its progress. ----
+export interface CrawlJob {
+  storyId: string;
+  running: boolean;
+  stopRequested: boolean;
+  added: number;
+  total: number;
+  logs: string[];
+  error?: string;
+  startedAt: number;
+}
+const jobs = new Map<string, CrawlJob>();
+const MAX_JOB_LOGS = 2000;
+
+export const getCrawlJob = (storyId: string): CrawlJob | undefined => jobs.get(storyId);
+
+export const stopCrawlJob = (storyId: string): boolean => {
+  const job = jobs.get(storyId);
+  if (!job?.running) return false;
+  job.stopRequested = true;
+  return true;
+};
+
+/** Starts a crawl in the background. Throws if one is already running for the story. */
+export function startCrawlJob(storyId: string, cfg: CrawlConfig, limit: number): CrawlJob {
+  if (jobs.get(storyId)?.running) throw new Error('Truyện này đang được cào, hãy đợi hoặc bấm Dừng.');
+  const job: CrawlJob = { storyId, running: true, stopRequested: false, added: 0, total: 0, logs: [], startedAt: Date.now() };
+  jobs.set(storyId, job);
+  const push = (line: string) => {
+    job.logs.push(line);
+    if (job.logs.length > MAX_JOB_LOGS) job.logs.splice(0, job.logs.length - MAX_JOB_LOGS);
+  };
+  crawlStory(storyId, cfg, limit, {
+    onLog: push,
+    shouldStop: () => job.stopRequested,
+    onProgress: (added, total) => {
+      job.added = added;
+      job.total = total;
+    },
+  })
+    .then((r) => {
+      job.added = r.added;
+    })
+    .catch((e: any) => {
+      job.error = e?.message || 'Crawl lỗi';
+    })
+    .finally(() => {
+      job.running = false;
+    });
+  return job;
+}
+
+async function doCrawl(storyId: string, cfg: CrawlConfig, limit: number, opts: CrawlOpts): Promise<CrawlResult> {
   const logs: string[] = [];
-  const log = (m: string) => logs.push(m);
+  const log = (m: string) => {
+    logs.push(m);
+    opts.onLog?.(m);
+  };
   const story = getStory(storyId);
   if (!story) throw new Error('Không tìm thấy truyện');
 
@@ -79,14 +144,37 @@ async function doCrawl(storyId: string, cfg: CrawlConfig, limit: number): Promis
     return { added: 0, logs };
   }
 
+  opts.onProgress?.(0, todo.length);
+  log(`Sẽ tải ${todo.length} chương (từ chương ${have + 1}), ${CONCURRENCY} chương song song.`);
+  const fetchChapter = async (url: string, fallbackTitle: string) => {
+    const $ = cheerio.load(await fetchHtml(url));
+    const content = extractParagraphs($, cfg.contentSelector);
+    if (content.length === 0) throw new Error('nội dung rỗng (sai selector nội dung?)');
+    const title = (cfg.titleSelector && $(cfg.titleSelector).first().text().trim()) || fallbackTitle;
+    return { content, title };
+  };
+
   let added = 0;
-  for (let i = 0; i < todo.length; i++) {
-    const number = have + i + 1;
-    try {
-      const $ = cheerio.load(await fetchHtml(todo[i].url));
-      const content = extractParagraphs($, cfg.contentSelector);
-      if (content.length === 0) throw new Error('nội dung rỗng (sai selector nội dung?)');
-      const title = (cfg.titleSelector && $(cfg.titleSelector).first().text().trim()) || todo[i].text || `Chương ${number}`;
+  let halted = false;
+  for (let b = 0; b < todo.length && !halted; b += CONCURRENCY) {
+    if (opts.shouldStop?.()) {
+      log('Đã dừng theo yêu cầu.');
+      break;
+    }
+    const batch = todo.slice(b, b + CONCURRENCY);
+    const settled = await Promise.allSettled(
+      batch.map((l, k) => fetchChapter(l.url, l.text || `Chương ${have + b + k + 1}`)),
+    );
+    // Save in TOC order; stop at the first failure so chapter numbers never skip.
+    for (let k = 0; k < settled.length; k++) {
+      const number = have + b + k + 1;
+      const r = settled[k];
+      if (r.status === 'rejected') {
+        log(`✗ Chương ${number} lỗi: ${r.reason?.message || r.reason}. Dừng để tránh bỏ sót thứ tự.`);
+        halted = true;
+        break;
+      }
+      const { content, title } = r.value;
       const chapter: Chapter = {
         id: `${storyId}-${number}`,
         storyId,
@@ -99,12 +187,10 @@ async function doCrawl(storyId: string, cfg: CrawlConfig, limit: number): Promis
       };
       upsertChapter(chapter);
       added++;
+      opts.onProgress?.(added, todo.length);
       log(`✓ Chương ${number}: ${title}`);
-    } catch (e: any) {
-      log(`✗ Chương ${number} lỗi: ${e?.message || e}. Dừng để tránh bỏ sót thứ tự.`);
-      break;
     }
-    await new Promise((r) => setTimeout(r, 800)); // be polite to the source
+    if (!halted && b + CONCURRENCY < todo.length) await new Promise((r) => setTimeout(r, BATCH_DELAY_MS));
   }
 
   if (added > 0) {
