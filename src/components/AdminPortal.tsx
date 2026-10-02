@@ -89,6 +89,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [importTokenInput, setImportTokenInput] = useState('');
   const [importStatus, setImportStatus] = useState<string | null>(null);
 
+  // Keep the selected stories valid when the list changes (e.g. the first story was just added).
+  useEffect(() => {
+    const first = stories[0]?.id || '';
+    setSelectedStoryId((cur) => (stories.some((s) => s.id === cur) ? cur : first));
+    setChapterStoryId((cur) => (stories.some((s) => s.id === cur) ? cur : first));
+  }, [stories]);
+
   useEffect(() => {
     if (!selectedStoryId) return;
     api.admin
@@ -107,7 +114,15 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
   // Handler: Run crawler
   const handleStartCrawl = async () => {
-    if (!selectedStoryId || isCrawling) return;
+    if (isCrawling) return;
+    if (!selectedStoryId) {
+      setCrawlerLogs(['Lỗi: chưa chọn truyện. Hãy tạo truyện ở tab "Quản Lý Truyện" trước.']);
+      return;
+    }
+    if (!targetUrl.trim()) {
+      setCrawlerLogs(['Lỗi: chưa nhập link trang mục lục của truyện nguồn.']);
+      return;
+    }
     setIsCrawling(true);
     setCrawlerLogs([`[${new Date().toLocaleTimeString()}] Bắt đầu cào: ${targetUrl}`]);
     try {
@@ -360,12 +375,26 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       onChange={(e) => setSelectedStoryId(e.target.value)}
                       className="w-full p-2.5 text-xs sm:text-sm bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:border-emerald-500"
                     >
+                      {stories.length === 0 && <option value="">(Chưa có truyện nào)</option>}
                       {stories.map((s) => (
                         <option key={s.id} value={s.id}>
                           {s.title} ({s.totalChapters} chương)
                         </option>
                       ))}
                     </select>
+                    {stories.length === 0 && (
+                      <p className="mt-1.5 text-[11px] text-amber-700">
+                        Crawler chỉ thêm chương vào truyện đã có. Hãy vào tab{' '}
+                        <button
+                          type="button"
+                          onClick={() => setActiveTab('stories')}
+                          className="underline font-semibold cursor-pointer"
+                        >
+                          Quản Lý Truyện
+                        </button>{' '}
+                        để tạo truyện trước.
+                      </p>
+                    )}
                   </div>
 
                   <div>
