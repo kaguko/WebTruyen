@@ -16,10 +16,9 @@ npm run dev            # web http://localhost:3000, API :3001 (proxy tự độn
 ```
 
 ## Triển khai
-```bash
-npm run build && npm start        # hoặc: docker build -t truyen . && docker run -p 3000:3000 -v truyen-data:/data --env-file .env truyen
-```
-Khi chạy thật: đặt `ADMIN_PASSWORD`, `SESSION_SECRET`, `SEED_DEMO=false`, chạy sau HTTPS (Nginx/Caddy) với `TRUST_PROXY=1`, và **backup thư mục dữ liệu** định kỳ.
+Hướng dẫn đầy đủ lên VPS AWS (Docker Compose + HTTPS tự động + backup): xem **[DEPLOY.md](DEPLOY.md)**.
+
+Chạy tay không Docker: `npm run build && npm start`. Khi chạy thật: đặt `ADMIN_PASSWORD`, `SESSION_SECRET`, `SITE_URL`, `SEED_DEMO=false`, chạy sau HTTPS với `TRUST_PROXY=1`, và backup thư mục dữ liệu.
 
 ## Việc cần làm cùng khách
 - Thay truyện mẫu, ảnh, link Shopee affiliate, tên thương hiệu/footer.

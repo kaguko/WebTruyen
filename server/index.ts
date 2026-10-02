@@ -42,6 +42,8 @@ const uniqueSlug = (title: string, selfId?: string): string => {
 // ---------- Public API ----------
 const api = express.Router();
 
+api.get('/health', (_req, res) => res.json({ ok: true }));
+
 api.get('/stories', (_req, res) => res.json(db.listStories()));
 const int = (v: unknown, def: number, min: number, max: number) =>
   Math.min(max, Math.max(min, Number.isFinite(Number(v)) ? Math.floor(Number(v)) : def));
