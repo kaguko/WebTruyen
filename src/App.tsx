@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import {
   Story,
   Chapter,
@@ -35,7 +35,8 @@ import { StoryCard } from './components/StoryCard';
 import { RankingSidebar } from './components/RankingSidebar';
 import { StoryDetail } from './components/StoryDetail';
 import { ReaderView } from './components/ReaderView';
-import { AdminPortal } from './components/AdminPortal';
+import { AdminGate } from './components/AdminGate';
+const AdminPortal = lazy(() => import('./components/AdminPortal').then((m) => ({ default: m.AdminPortal })));
 import { UserCabinets } from './components/UserCabinets';
 import { AdBanner } from './components/AdBanner';
 import { Footer } from './components/Footer';
@@ -462,6 +463,8 @@ export default function App() {
 
       {/* Admin Portal Modal (Crawler, Ads Shopee, Stories, Push Notifications) */}
       {isAdminOpen && (
+        <AdminGate onClose={() => setIsAdminOpen(false)}>
+        <Suspense fallback={null}>
         <AdminPortal
           stories={stories}
           ads={ads}
@@ -475,6 +478,8 @@ export default function App() {
             refreshStorageData();
           }}
         />
+        </Suspense>
+        </AdminGate>
       )}
 
       {/* Footer */}
