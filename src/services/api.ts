@@ -1,5 +1,20 @@
 import { Story, Chapter, ChapterPage, AdSlot, PushNotification, StoryComment } from '../types';
 
+export interface AdminStats {
+  totals: { stories: number; chapters: number; comments: number; users: number };
+  viewsToday: number;
+  views7d: number;
+  viewsByDay: { day: string; views: number }[];
+  commentsToday: number;
+  newUsersToday: number;
+  topStories: { id: string; title: string; views: number; totalChapters: number }[];
+  crawlRuns: { storyId: string; storyTitle: string; at: number; ok: boolean; added: number; message: string }[];
+  crawlConfigured: number;
+  crawlIntervalMin: number;
+  activeAds: { id: string; title: string; placement: string; isShopee: boolean; clicks: number }[];
+  recentComments: (StoryComment & { storyTitle: string })[];
+}
+
 export interface AccountUser {
   id: number;
   email: string;
@@ -53,6 +68,8 @@ export const api = {
 
   admin: {
     me: () => request<{ admin: boolean }>('/admin/me'),
+    stats: () => request<AdminStats>('/admin/stats'),
+    deleteComment: (id: string) => send('DELETE', `/admin/comments/${id}`),
     login: (password: string) => send<{ ok: true }>('POST', '/admin/login', { password }),
     logout: () => send('POST', '/admin/logout'),
     createStory: (b: Partial<Story>) => send<Story>('POST', '/admin/stories', b),

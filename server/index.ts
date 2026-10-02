@@ -170,6 +170,12 @@ api.get('/admin/me', (req, res) => res.json({ admin: isAdmin(req) }));
 const admin = express.Router();
 admin.use(requireAdmin);
 
+admin.get('/stats', (_req, res) => res.json(db.getStats()));
+admin.delete('/comments/:id', (req, res) => {
+  db.deleteComment(req.params.id);
+  res.json({ ok: true });
+});
+
 admin.post('/stories', (req, res) => {
   const title = str(req.body?.title, 200);
   if (!title) return res.status(400).json({ error: 'Thiếu tên truyện' });

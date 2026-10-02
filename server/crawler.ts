@@ -1,6 +1,6 @@
 import * as cheerio from 'cheerio';
 import type { Chapter } from '../src/types';
-import { CrawlConfig, chapterCount, getStory, upsertChapter, addNotification, saveCrawlConfig } from './db';
+import { CrawlConfig, chapterCount, getStory, upsertChapter, addNotification, saveCrawlConfig, recordCrawlRun } from './db';
 
 const UA = 'Mozilla/5.0 (compatible; TruyenFullBot/1.0)';
 
@@ -31,6 +31,20 @@ export interface CrawlResult {
 
 /** Crawl new chapters (by TOC order; chapter N = Nth link) for a story. Only chapters beyond the current count are fetched. */
 export async function crawlStory(storyId: string, cfg: CrawlConfig, limit = 20): Promise<CrawlResult> {
+  const title = getStory(storyId)?.title ?? storyId;
+  try {
+    const result = await doCrawl(storyId, cfg, limit);
+    // A run that stopped on a chapter error is reported as failed even if earlier chapters were saved.
+    const failure = result.logs.find((l) => l.startsWith('✗'));
+    recordCrawlRun(storyId, title, !failure, result.added, failure ?? `Thêm ${result.added} chương`);
+    return result;
+  } catch (e: any) {
+    recordCrawlRun(storyId, title, false, 0, e?.message || 'Lỗi không xác định');
+    throw e;
+  }
+}
+
+async function doCrawl(storyId: string, cfg: CrawlConfig, limit: number): Promise<CrawlResult> {
   const logs: string[] = [];
   const log = (m: string) => logs.push(m);
   const story = getStory(storyId);

@@ -22,6 +22,7 @@ import {
   Download,
   Upload,
   LogOut,
+  LayoutDashboard,
 } from 'lucide-react';
 import { Story, AdSlot, AdPlacement, Genre, PushNotification } from '../types';
 import {
@@ -29,6 +30,7 @@ import {
   importUserData,
 } from '../services/storage';
 import { api } from '../services/api';
+import { DashboardTab } from './DashboardTab';
 
 interface AdminPortalProps {
   stories: Story[];
@@ -37,7 +39,7 @@ interface AdminPortalProps {
   onClose: () => void;
 }
 
-type AdminTab = 'dashboard' | 'stories' | 'crawler' | 'ads_shopee' | 'push' | 'sync';
+export type AdminTab = 'dashboard' | 'stories' | 'crawler' | 'ads_shopee' | 'push' | 'sync';
 
 export const AdminPortal: React.FC<AdminPortalProps> = ({
   stories,
@@ -45,7 +47,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   onDataChanged,
   onClose,
 }) => {
-  const [activeTab, setActiveTab] = useState<AdminTab>('crawler');
+  const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
 
   // Crawler State
   const [selectedStoryId, setSelectedStoryId] = useState<string>(stories[0]?.id || '');
@@ -296,9 +298,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         {/* Tab Navigation */}
         <div className="flex items-center gap-1 border-b border-stone-200 px-4 sm:px-6 bg-white overflow-x-auto text-xs font-semibold">
           {[
+            { id: 'dashboard', label: 'Tổng Quan', icon: LayoutDashboard },
+            { id: 'stories', label: 'Quản Lý Truyện', icon: BookOpen },
             { id: 'crawler', label: 'Bộ Thu Thập (Crawler)', icon: Bot },
             { id: 'ads_shopee', label: 'Quảng Cáo & Shopee Aff', icon: ShoppingBag },
-            { id: 'stories', label: 'Quản Lý Truyện', icon: BookOpen },
             { id: 'push', label: 'Thông Báo Đẩy (Push)', icon: Bell },
             { id: 'sync', label: 'Đồng Bộ & Sao Lưu', icon: RotateCcw },
           ].map((tab) => {
@@ -323,6 +326,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
         {/* Tab Body */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-stone-50/50">
+          {activeTab === 'dashboard' && (
+            <DashboardTab
+              onGoTo={setActiveTab}
+              dataVersion={stories.length + ads.length}
+            />
+          )}
+
           {/* TAB 1: CRAWLER */}
           {activeTab === 'crawler' && (
             <div className="space-y-6">

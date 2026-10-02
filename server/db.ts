@@ -40,6 +40,16 @@ db.exec(`
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, kind)
   );
+  CREATE TABLE IF NOT EXISTS daily_views (day TEXT PRIMARY KEY, views INTEGER NOT NULL);
+  CREATE TABLE IF NOT EXISTS crawl_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    story_id TEXT NOT NULL,
+    story_title TEXT NOT NULL,
+    at INTEGER NOT NULL,
+    ok INTEGER NOT NULL,
+    added INTEGER NOT NULL,
+    message TEXT NOT NULL
+  );
   CREATE TABLE IF NOT EXISTS crawl_config (story_id TEXT PRIMARY KEY REFERENCES stories(id) ON DELETE CASCADE, data TEXT NOT NULL);
 `);
 
@@ -123,6 +133,15 @@ export const bumpChapterViews = (storyId: string, number: number) => {
   db.prepare(
     `UPDATE stories SET data = json_set(data, '$.views', COALESCE(json_extract(data, '$.views'), 0) + 1) WHERE id = ?`,
   ).run(storyId);
+  db.prepare(
+    `INSERT INTO daily_views (day, views) VALUES (?, 1) ON CONFLICT(day) DO UPDATE SET views = views + 1`,
+  ).run(dayKey(Date.now()));
+};
+
+/** Day bucket in the server's local time zone (YYYY-MM-DD). */
+export const dayKey = (ms: number): string => {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
 // ---- Ads ----
@@ -207,6 +226,77 @@ export const setUserData = (userId: number, kind: string, value: unknown) => {
     `INSERT INTO user_data (user_id, kind, data, updated_at) VALUES (?, ?, ?, ?)
      ON CONFLICT(user_id, kind) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`,
   ).run(userId, kind, JSON.stringify(value), Date.now());
+};
+
+// ---- Moderation ----
+export const deleteComment = (id: string) => {
+  db.prepare('DELETE FROM comments WHERE id = ?').run(id);
+};
+
+// ---- Crawl runs ----
+export const recordCrawlRun = (storyId: string, storyTitle: string, ok: boolean, added: number, message: string) => {
+  db.prepare('INSERT INTO crawl_runs (story_id, story_title, at, ok, added, message) VALUES (?, ?, ?, ?, ?, ?)').run(
+    storyId,
+    storyTitle,
+    Date.now(),
+    ok ? 1 : 0,
+    added,
+    message.slice(0, 500),
+  );
+  db.prepare('DELETE FROM crawl_runs WHERE id NOT IN (SELECT id FROM crawl_runs ORDER BY id DESC LIMIT 200)').run();
+};
+
+// ---- Dashboard stats ----
+export const getStats = () => {
+  const one = (sql: string, ...args: any[]) => (db.prepare(sql).get(...args) as any).n as number;
+  const now = Date.now();
+  const startOfToday = new Date(new Date(now).setHours(0, 0, 0, 0)).getTime();
+  const days: { day: string; views: number }[] = [];
+  for (let i = 6; i >= 0; i--) {
+    const day = dayKey(now - i * 86_400_000);
+    const row = db.prepare('SELECT views FROM daily_views WHERE day = ?').get(day) as any;
+    days.push({ day, views: row?.views ?? 0 });
+  }
+  const stories = listStories();
+  const runs = (db.prepare('SELECT * FROM crawl_runs ORDER BY id DESC LIMIT 5').all() as any[]).map((r) => ({
+    storyId: r.story_id,
+    storyTitle: r.story_title,
+    at: r.at,
+    ok: Boolean(r.ok),
+    added: r.added,
+    message: r.message,
+  }));
+  const recentComments = (
+    db
+      .prepare(
+        `SELECT c.data, s.data AS story FROM comments c JOIN stories s ON s.id = c.story_id
+         ORDER BY c.created_at DESC LIMIT 8`,
+      )
+      .all() as any[]
+  ).map((r) => ({ ...JSON.parse(r.data), storyTitle: JSON.parse(r.story).title }));
+  return {
+    totals: {
+      stories: stories.length,
+      chapters: one('SELECT COUNT(*) AS n FROM chapters'),
+      comments: one('SELECT COUNT(*) AS n FROM comments'),
+      users: one('SELECT COUNT(*) AS n FROM users'),
+    },
+    viewsToday: days[days.length - 1].views,
+    views7d: days.reduce((a, d) => a + d.views, 0),
+    viewsByDay: days,
+    commentsToday: one('SELECT COUNT(*) AS n FROM comments WHERE created_at >= ?', startOfToday),
+    newUsersToday: one('SELECT COUNT(*) AS n FROM users WHERE created_at >= ?', startOfToday),
+    topStories: [...stories].sort((a, b) => b.views - a.views).slice(0, 5).map((s) => ({
+      id: s.id, title: s.title, views: s.views, totalChapters: s.totalChapters,
+    })),
+    crawlRuns: runs,
+    crawlConfigured: one('SELECT COUNT(*) AS n FROM crawl_config'),
+    crawlIntervalMin: Number(process.env.CRAWL_INTERVAL_MIN) || 0,
+    activeAds: listAds().filter((a) => a.isEnabled).map((a) => ({
+      id: a.id, title: a.title, placement: a.placement, isShopee: a.isShopee, clicks: a.clicks,
+    })),
+    recentComments,
+  };
 };
 
 // ---- Crawl config ----

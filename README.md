@@ -27,6 +27,9 @@ Khi chạy thật: đặt `ADMIN_PASSWORD`, `SESSION_SECRET`, `SEED_DEMO=false`,
 - Tài khoản độc giả: mật khẩu băm scrypt, phiên 30 ngày bằng cookie HttpOnly, giới hạn tốc độ đăng nhập/đăng ký, có chức năng xóa tài khoản. **Chưa có:** quên mật khẩu/xác minh email (cần dịch vụ gửi email — SMTP/Resend...), đăng nhập Google/Facebook.
 - Đồng bộ theo kiểu "bản ghi sau ghi đè bản ghi trước" cho từng loại dữ liệu; lần đăng nhập đầu tiên sẽ gộp dữ liệu ẩn danh trên máy vào tài khoản. Đăng xuất sẽ xóa dữ liệu cá nhân trên trình duyệt đó.
 
+## Trang quản trị
+Tab mặc định là **Tổng Quan**: số truyện/chương/độc giả, lượt xem hôm nay và 7 ngày (đếm từ khi triển khai bản này), bình luận hôm nay, top 5 truyện, trạng thái crawler (5 lần chạy gần nhất, cảnh báo khi lỗi), quảng cáo đang bật, và danh sách bình luận mới nhất kèm nút xóa spam. Chưa có hàng đợi duyệt bình luận trước khi hiển thị: bình luận hiện công khai ngay, admin xóa sau.
+
 ## URL & SEO
 - URL: `/`, `/the-loai/<the-loai>`, `/truyen/<slug>`, `/truyen/<slug>/chuong-<n>`.
 - Ở production, server chèn sẵn `<title>`, meta description, canonical, Open Graph, JSON-LD (Book/BreadcrumbList) và nội dung dự phòng (tiêu đề, mô tả, nội dung chương) vào HTML để Google/mạng xã hội đọc được; trang không tồn tại trả HTTP 404.
