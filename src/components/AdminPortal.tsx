@@ -29,7 +29,7 @@ import {
   exportAllUserData,
   importUserData,
 } from '../services/storage';
-import { api } from '../services/api';
+import { api, type CrawlStatus } from '../services/api';
 import { DashboardTab } from './DashboardTab';
 
 interface AdminPortalProps {
@@ -53,6 +53,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [selectedStoryId, setSelectedStoryId] = useState<string>(stories[0]?.id || '');
   const [targetUrl, setTargetUrl] = useState<string>('');
   const [isCrawling, setIsCrawling] = useState(false);
+  const [crawlLimit, setCrawlLimit] = useState(100);
+  const [crawlProgress, setCrawlProgress] = useState<{ added: number; total: number }>({ added: 0, total: 0 });
+  const [stopping, setStopping] = useState(false);
   const [linkSelector, setLinkSelector] = useState('.list-chapter a');
   const [contentSelector, setContentSelector] = useState('#chapter-c');
   const [titleSelector, setTitleSelector] = useState('');
@@ -108,7 +111,51 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         setTitleSelector(cfg.titleSelector || '');
       })
       .catch(() => {});
+    // A crawl keeps running on the server after the panel is closed: pick it up again.
+    api.admin
+      .crawlStatus(selectedStoryId)
+      .then((st) => {
+        applyCrawlStatus(st);
+        setIsCrawling(st.running);
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedStoryId]);
+
+  const applyCrawlStatus = (st: CrawlStatus) => {
+    setCrawlProgress({ added: st.added, total: st.total });
+    setStopping(!!st.stopRequested && st.running);
+    if (st.logs.length === 0 && !st.error) return;
+    const lines = st.logs.slice(-300).reverse();
+    if (st.error) lines.unshift(`Lỗi: ${st.error}`);
+    else if (!st.running) lines.unshift(`Hoàn tất: thêm ${st.added} chương mới.`);
+    setCrawlerLogs(lines);
+  };
+
+  // Poll progress while a crawl runs.
+  useEffect(() => {
+    if (!isCrawling || !selectedStoryId) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const st = await api.admin.crawlStatus(selectedStoryId);
+        if (cancelled) return;
+        applyCrawlStatus(st);
+        if (!st.running) {
+          setIsCrawling(false);
+          onDataChanged();
+        }
+      } catch {
+        /* transient network error: keep polling */
+      }
+    };
+    const t = setInterval(tick, 1500);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isCrawling, selectedStoryId]);
 
   const fail = (e: unknown) => alert((e as Error)?.message || 'Thao tác thất bại');
 
@@ -124,20 +171,31 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       return;
     }
     setIsCrawling(true);
-    setCrawlerLogs([`[${new Date().toLocaleTimeString()}] Bắt đầu cào: ${targetUrl}`]);
+    setStopping(false);
+    setCrawlProgress({ added: 0, total: 0 });
+    setCrawlerLogs([`[${new Date().toLocaleTimeString()}] Bắt đầu cào tối đa ${crawlLimit} chương: ${targetUrl}`]);
     try {
-      const result = await api.admin.crawl(selectedStoryId, {
+      await api.admin.crawl(selectedStoryId, {
         tocUrl: targetUrl,
         linkSelector,
         contentSelector,
         titleSelector: titleSelector || undefined,
+        limit: crawlLimit,
       });
-      setCrawlerLogs([...result.logs, `Hoàn tất: thêm ${result.added} chương mới.`].reverse());
-      onDataChanged();
     } catch (e) {
       setCrawlerLogs([`Lỗi: ${(e as Error).message}`]);
-    } finally {
       setIsCrawling(false);
+    }
+  };
+
+  const handleStopCrawl = async () => {
+    if (!selectedStoryId) return;
+    setStopping(true);
+    try {
+      await api.admin.crawlStop(selectedStoryId);
+    } catch (e) {
+      setStopping(false);
+      fail(e);
     }
   };
 
@@ -429,10 +487,34 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   ))}
                 </div>
                 <p className="mt-3 text-[11px] text-stone-500">
-                  Chương thứ N = link thứ N trong mục lục; chỉ tải các chương chưa có (tối đa 20 mỗi lần). Chỉ cào nội dung bạn có quyền sử dụng.
+                  Chương thứ N = link thứ N trong mục lục; chỉ tải các chương chưa có (chọn số chương mỗi lần, tối đa 1000). Cào chạy nền trên server, có thể đóng bảng này và quay lại xem tiến độ. Chỉ cào nội dung bạn có quyền sử dụng.
                 </p>
 
                 <div className="mt-4 pt-4 border-t border-stone-100 flex flex-wrap items-center justify-end gap-3">
+                  <label className="flex items-center gap-2 text-xs font-semibold text-stone-600 mr-auto">
+                    Số chương mỗi lần:
+                    <select
+                      value={crawlLimit}
+                      onChange={(e) => setCrawlLimit(Number(e.target.value))}
+                      disabled={isCrawling}
+                      className="p-2 text-xs bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                    >
+                      {[20, 50, 100, 200, 500, 1000].map((n) => (
+                        <option key={n} value={n}>
+                          {n === 1000 ? '1000 (tối đa)' : n}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {isCrawling && (
+                    <button
+                      onClick={handleStopCrawl}
+                      disabled={stopping}
+                      className="px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm border border-red-300 text-red-700 bg-red-50 hover:bg-red-100 disabled:opacity-60 cursor-pointer"
+                    >
+                      {stopping ? 'Đang dừng...' : 'Dừng'}
+                    </button>
+                  )}
                   <button
                     onClick={handleStartCrawl}
                     disabled={isCrawling}
@@ -455,8 +537,22 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping" />
                     <span className="font-bold text-white">Crawler Console & Live Logs</span>
                   </div>
-                  <span>{isCrawling ? 'Đang chạy...' : 'Sẵn sàng'}</span>
+                  <span>
+                    {isCrawling
+                      ? crawlProgress.total > 0
+                        ? `Đang chạy ${crawlProgress.added}/${crawlProgress.total} chương`
+                        : 'Đang chạy...'
+                      : 'Sẵn sàng'}
+                  </span>
                 </div>
+                {isCrawling && crawlProgress.total > 0 && (
+                  <div className="h-1.5 mb-3 rounded-full bg-stone-800 overflow-hidden">
+                    <div
+                      className="h-full bg-emerald-500 transition-all"
+                      style={{ width: `${Math.round((crawlProgress.added / crawlProgress.total) * 100)}%` }}
+                    />
+                  </div>
+                )}
 
                 {/* Logs Terminal */}
                 <div className="max-h-60 overflow-y-auto space-y-1.5 scrollbar-thin">
