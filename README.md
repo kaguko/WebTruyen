@@ -4,7 +4,7 @@ Web đọc truyện chữ: React 19 + Vite + Tailwind 4 (frontend), Express + SQ
 
 ## Kiến trúc
 - **Server-side (dùng chung mọi độc giả):** truyện, chương, quảng cáo/Shopee, thông báo, bình luận → SQLite (`DATA_DIR/truyen.db`).
-- **Trên trình duyệt từng độc giả:** lịch sử đọc, tủ truyện, ghi chú, cài đặt đọc, bản tải offline (localStorage). Chưa có tài khoản độc giả.
+- **Độc giả:** dùng ẩn danh (localStorage) hoặc đăng ký tài khoản email + mật khẩu. Khi đăng nhập, lịch sử đọc, tủ truyện, ghi chú và cài đặt đọc được đồng bộ giữa các thiết bị. Bản tải offline chỉ lưu trên từng máy.
 - **Admin:** đăng nhập bằng `ADMIN_PASSWORD`, phiên lưu bằng cookie HttpOnly ký HMAC; mọi API ghi đều yêu cầu phiên admin.
 - **Crawler:** server tải trang mục lục + từng chương, bóc nội dung theo CSS selector admin nhập; chương N = link thứ N, chỉ tải chương chưa có. Có thể quét tự động (`CRAWL_INTERVAL_MIN`).
 
@@ -24,7 +24,8 @@ Khi chạy thật: đặt `ADMIN_PASSWORD`, `SESSION_SECRET`, `SEED_DEMO=false`,
 ## Việc cần làm cùng khách
 - Thay truyện mẫu, ảnh, link Shopee affiliate, tên thương hiệu/footer.
 - Trang điều khoản/chính sách; chỉ crawl nội dung có quyền sử dụng.
-- Chưa có: tài khoản độc giả (đồng bộ đa thiết bị).
+- Tài khoản độc giả: mật khẩu băm scrypt, phiên 30 ngày bằng cookie HttpOnly, giới hạn tốc độ đăng nhập/đăng ký, có chức năng xóa tài khoản. **Chưa có:** quên mật khẩu/xác minh email (cần dịch vụ gửi email — SMTP/Resend...), đăng nhập Google/Facebook.
+- Đồng bộ theo kiểu "bản ghi sau ghi đè bản ghi trước" cho từng loại dữ liệu; lần đăng nhập đầu tiên sẽ gộp dữ liệu ẩn danh trên máy vào tài khoản. Đăng xuất sẽ xóa dữ liệu cá nhân trên trình duyệt đó.
 
 ## URL & SEO
 - URL: `/`, `/the-loai/<the-loai>`, `/truyen/<slug>`, `/truyen/<slug>/chuong-<n>`.

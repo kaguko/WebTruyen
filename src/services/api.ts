@@ -1,5 +1,11 @@
 import { Story, Chapter, ChapterPage, AdSlot, PushNotification, StoryComment } from '../types';
 
+export interface AccountUser {
+  id: number;
+  email: string;
+  name: string;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
     credentials: 'same-origin',
@@ -33,6 +39,17 @@ export const api = {
   comments: (storyId: string) => request<StoryComment[]>(`/stories/${storyId}/comments`),
   addComment: (storyId: string, body: { content: string; rating: number; authorName?: string }) =>
     send<StoryComment>('POST', `/stories/${storyId}/comments`, body),
+
+  auth: {
+    me: () => request<{ user: AccountUser | null }>('/auth/me'),
+    register: (b: { email: string; password: string; name?: string }) =>
+      send<{ user: AccountUser }>('POST', '/auth/register', b),
+    login: (b: { email: string; password: string }) => send<{ user: AccountUser }>('POST', '/auth/login', b),
+    logout: () => send('POST', '/auth/logout'),
+    deleteAccount: (password: string) => send('DELETE', '/auth/account', { password }),
+    getData: () => request<Record<string, unknown>>('/me/data'),
+    putData: (kind: string, data: unknown) => send('PUT', `/me/data/${kind}`, { data }),
+  },
 
   admin: {
     me: () => request<{ admin: boolean }>('/admin/me'),

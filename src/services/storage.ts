@@ -118,6 +118,126 @@ export const trackAdClick = (adId: string) => {
   void api.adClick(adId);
 };
 
+// --- Account sync (history, bookmarks, notes, settings) ---
+// Anonymous readers use localStorage only. Once signed in, every change is also pushed to the server
+// (debounced); a per-kind "dirty" flag survives reloads/offline so unsent changes are never overwritten.
+type SyncKind = 'history' | 'bookmarks' | 'notes' | 'settings';
+const SYNC_KINDS: SyncKind[] = ['history', 'bookmarks', 'notes', 'settings'];
+const SYNC_KEY: Record<SyncKind, string> = {
+  history: STORAGE_KEYS.HISTORY,
+  bookmarks: STORAGE_KEYS.BOOKMARKS,
+  notes: STORAGE_KEYS.NOTES,
+  settings: STORAGE_KEYS.READER_SETTINGS,
+};
+const DIRTY_KEY = 'tf_sync_dirty_v1';
+let syncEnabled = false;
+const syncTimers: Partial<Record<SyncKind, number>> = {};
+
+const getDirty = (): SyncKind[] => readCache<SyncKind[]>(DIRTY_KEY, []);
+const setDirty = (kinds: SyncKind[]) => writeCache(DIRTY_KEY, kinds);
+const localValue = (kind: SyncKind): unknown => {
+  if (kind === 'settings') return getReaderSettings();
+  return readCache<unknown[]>(SYNC_KEY[kind], []);
+};
+
+const pushKind = async (kind: SyncKind) => {
+  try {
+    await api.auth.putData(kind, localValue(kind));
+    setDirty(getDirty().filter((k) => k !== kind));
+  } catch {
+    /* stays dirty; retried on next load or change */
+  }
+};
+
+export const setSyncEnabled = (enabled: boolean) => {
+  syncEnabled = enabled;
+};
+
+function markDirty(kind: SyncKind) {
+  if (!syncEnabled) return;
+  setDirty([...new Set([...getDirty(), kind])]);
+  window.clearTimeout(syncTimers[kind]);
+  syncTimers[kind] = window.setTimeout(() => void pushKind(kind), 800);
+}
+
+/** Await delivery of all unsent changes (used before sign-out). */
+export const pushDirty = async () => {
+  if (!syncEnabled) return;
+  for (const kind of SYNC_KINDS) {
+    window.clearTimeout(syncTimers[kind]);
+    delete syncTimers[kind];
+  }
+  await Promise.all(getDirty().map(pushKind));
+};
+
+/** Send pending changes immediately (call when the tab is being hidden/closed). */
+export const flushSync = () => {
+  if (!syncEnabled) return;
+  for (const kind of SYNC_KINDS) {
+    if (syncTimers[kind] !== undefined) {
+      window.clearTimeout(syncTimers[kind]);
+      delete syncTimers[kind];
+      try {
+        void fetch(`/api/me/data/${kind}`, {
+          method: 'PUT',
+          credentials: 'same-origin',
+          keepalive: true,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data: localValue(kind) }),
+        });
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+};
+
+const mergeLists = {
+  history: (server: ReadingHistoryItem[], local: ReadingHistoryItem[]) => {
+    const map = new Map<string, ReadingHistoryItem>();
+    for (const h of [...server, ...local]) {
+      const cur = map.get(h.storyId);
+      if (!cur || h.updatedAt > cur.updatedAt) map.set(h.storyId, h);
+    }
+    return [...map.values()].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1)).slice(0, 50);
+  },
+  bookmarks: (server: BookmarkItem[], local: BookmarkItem[]) => {
+    const map = new Map(server.map((b) => [b.storyId, b]));
+    local.forEach((b) => map.has(b.storyId) || map.set(b.storyId, b));
+    return [...map.values()];
+  },
+  notes: (server: PersonalNote[], local: PersonalNote[]) => {
+    const ids = new Set(server.map((n) => n.id));
+    return [...local.filter((n) => !ids.has(n.id)), ...server];
+  },
+};
+
+/**
+ * Called after sign-in/registration (merge = true: combine this device's anonymous data with the account)
+ * and on app load while signed in (merge = false: the server copy wins unless local changes are unsent).
+ */
+export const syncFromServer = async (merge: boolean) => {
+  const server = await api.auth.getData();
+  const dirty = new Set(getDirty());
+  for (const kind of SYNC_KINDS) {
+    const remote = server[kind];
+    if (kind === 'settings') {
+      const hasRemote = remote && Object.keys(remote as object).length > 0;
+      if (hasRemote && (merge || !dirty.has(kind))) writeCache(SYNC_KEY[kind], remote);
+    } else if (Array.isArray(remote)) {
+      if (merge) writeCache(SYNC_KEY[kind], mergeLists[kind](remote as any, localValue(kind) as any));
+      else if (!dirty.has(kind)) writeCache(SYNC_KEY[kind], remote);
+    }
+    if (merge || dirty.has(kind) || remote === undefined) await pushKind(kind);
+  }
+};
+
+/** Remove account-bound data from this browser (used on sign-out so the next person on a shared device starts clean). */
+export const clearLocalUserData = () => {
+  SYNC_KINDS.forEach((k) => localStorage.removeItem(SYNC_KEY[k]));
+  localStorage.removeItem(DIRTY_KEY);
+};
+
 // --- Reading History ---
 export const getReadingHistory = (): ReadingHistoryItem[] => {
   try {
@@ -133,6 +253,7 @@ export const saveReadingHistory = (item: ReadingHistoryItem) => {
     const history = getReadingHistory().filter((h) => h.storyId !== item.storyId);
     history.unshift(item);
     localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(history.slice(0, 50)));
+    markDirty('history');
   } catch (err) {
     console.error('Error saving reading history:', err);
   }
@@ -140,6 +261,7 @@ export const saveReadingHistory = (item: ReadingHistoryItem) => {
 
 export const clearReadingHistory = () => {
   localStorage.removeItem(STORAGE_KEYS.HISTORY);
+  markDirty('history');
 };
 
 // --- Bookmarks (Tủ Truyện) ---
@@ -158,10 +280,12 @@ export const toggleBookmark = (storyId: string): boolean => {
   if (exists) {
     const filtered = bookmarks.filter((b) => b.storyId !== storyId);
     localStorage.setItem(STORAGE_KEYS.BOOKMARKS, JSON.stringify(filtered));
+    markDirty('bookmarks');
     return false;
   } else {
     bookmarks.push({ storyId, category: 'reading', addedAt: new Date().toISOString() });
     localStorage.setItem(STORAGE_KEYS.BOOKMARKS, JSON.stringify(bookmarks));
+    markDirty('bookmarks');
     return true;
   }
 };
@@ -188,11 +312,13 @@ export const savePersonalNote = (note: PersonalNote) => {
   const notes = getPersonalNotes();
   notes.unshift(note);
   localStorage.setItem(STORAGE_KEYS.NOTES, JSON.stringify(notes));
+  markDirty('notes');
 };
 
 export const deletePersonalNote = (id: string) => {
   const notes = getPersonalNotes().filter((n) => n.id !== id);
   localStorage.setItem(STORAGE_KEYS.NOTES, JSON.stringify(notes));
+  markDirty('notes');
 };
 
 // --- Offline Stories Storage ---
@@ -244,6 +370,7 @@ export const getReaderSettings = (): ReaderSettings => {
 
 export const saveReaderSettings = (settings: ReaderSettings) => {
   localStorage.setItem(STORAGE_KEYS.READER_SETTINGS, JSON.stringify(settings));
+  markDirty('settings');
 };
 
 // --- Backup & Cross-Device Sync ---
@@ -266,6 +393,7 @@ export const importUserData = (jsonString: string): boolean => {
     if (parsed.bookmarks) localStorage.setItem(STORAGE_KEYS.BOOKMARKS, JSON.stringify(parsed.bookmarks));
     if (parsed.notes) localStorage.setItem(STORAGE_KEYS.NOTES, JSON.stringify(parsed.notes));
     if (parsed.settings) localStorage.setItem(STORAGE_KEYS.READER_SETTINGS, JSON.stringify(parsed.settings));
+    SYNC_KINDS.forEach(markDirty);
     return true;
   } catch (err) {
     console.error('Import failed:', err);

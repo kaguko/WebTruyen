@@ -4,7 +4,11 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import fs from 'node:fs';
 import * as db from './db';
-import { checkPassword, issueSession, clearSession, requireAdmin, isAdmin } from './auth';
+import {
+  checkPassword, issueSession, clearSession, requireAdmin, isAdmin,
+  issueUserSession, clearUserSession, getUserId, requireUser,
+} from './auth';
+import { hashPassword, verifyPassword } from './password';
 import { crawlStory } from './crawler';
 import { renderPage, robots, sitemap } from './seo';
 import type { Story, Chapter, AdSlot } from '../src/types';
@@ -89,6 +93,65 @@ api.post('/stories/:id/comments', commentLimiter, (req, res) => {
   };
   db.addComment(comment);
   res.status(201).json(comment);
+});
+
+// ---------- Reader accounts ----------
+const authLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 20, standardHeaders: true, legacyHeaders: false });
+const publicUser = (u: { id: number; email: string; name: string }) => ({ id: u.id, email: u.email, name: u.name });
+const EMAIL_RE = /^[^\s@]{1,64}@[^\s@]{1,255}\.[^\s@]{2,}$/;
+
+api.post('/auth/register', authLimiter, async (req, res) => {
+  const email = str(req.body?.email, 254).toLowerCase();
+  const name = str(req.body?.name, 40) || email.split('@')[0];
+  const password = typeof req.body?.password === 'string' ? req.body.password : '';
+  if (!EMAIL_RE.test(email)) return res.status(400).json({ error: 'Email không hợp lệ' });
+  if (password.length < 8 || password.length > 200) return res.status(400).json({ error: 'Mật khẩu cần từ 8 ký tự' });
+  if (db.findUserByEmail(email)) return res.status(409).json({ error: 'Email này đã được đăng ký' });
+  const id = db.createUser(email, name, await hashPassword(password));
+  issueUserSession(res, id);
+  res.status(201).json({ user: publicUser({ id, email, name }) });
+});
+api.post('/auth/login', authLimiter, async (req, res) => {
+  const email = str(req.body?.email, 254).toLowerCase();
+  const password = typeof req.body?.password === 'string' ? req.body.password.slice(0, 200) : '';
+  const user = db.findUserByEmail(email);
+  // Always run a hash comparison so response time doesn't reveal whether the email exists.
+  const ok = await verifyPassword(password, user?.password_hash);
+  if (!user || !ok) return res.status(401).json({ error: 'Sai email hoặc mật khẩu' });
+  issueUserSession(res, user.id);
+  res.json({ user: publicUser(user) });
+});
+api.post('/auth/logout', (_req, res) => {
+  clearUserSession(res);
+  res.json({ ok: true });
+});
+api.get('/auth/me', (req, res) => {
+  const id = getUserId(req);
+  const user = id ? db.findUserById(id) : undefined;
+  res.json({ user: user ? publicUser(user) : null });
+});
+api.delete('/auth/account', requireUser, async (req, res) => {
+  const user = db.findUserById((req as any).userId);
+  const password = typeof req.body?.password === 'string' ? req.body.password : '';
+  if (!user || !(await verifyPassword(password, user.password_hash)))
+    return res.status(401).json({ error: 'Sai mật khẩu' });
+  db.deleteUser(user.id);
+  clearUserSession(res);
+  res.json({ ok: true });
+});
+
+// Per-reader synced data: history, bookmarks, notes, settings (whole-document, last write wins)
+api.get('/me/data', requireUser, (req, res) => res.json(db.getUserData((req as any).userId)));
+api.put('/me/data/:kind', requireUser, (req, res) => {
+  const kind = req.params.kind;
+  if (!(db.USER_DATA_KINDS as readonly string[]).includes(kind)) return res.status(404).json({ error: 'Not found' });
+  const value = req.body?.data;
+  const isList = kind !== 'settings';
+  if (isList ? !Array.isArray(value) : typeof value !== 'object' || value === null || Array.isArray(value))
+    return res.status(400).json({ error: 'Dữ liệu không hợp lệ' });
+  if (JSON.stringify(value).length > 1_000_000) return res.status(413).json({ error: 'Dữ liệu quá lớn' });
+  db.setUserData((req as any).userId, kind, value);
+  res.json({ ok: true });
 });
 
 // ---------- Admin API ----------

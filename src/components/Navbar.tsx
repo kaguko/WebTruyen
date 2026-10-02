@@ -15,6 +15,7 @@ import {
   ChevronDown,
   Globe,
   CheckCircle2,
+  User,
 } from 'lucide-react';
 import { Story, Genre, PushNotification } from '../types';
 import { Language, translations } from '../services/i18n';
@@ -30,7 +31,8 @@ interface NavbarProps {
   onOpenBookmarks: () => void;
   onOpenNotes: () => void;
   onOpenOffline: () => void;
-  onOpenSync: () => void;
+  onOpenAccount: () => void;
+  accountName?: string;
   onOpenAdmin: () => void;
   onFilterGenre: (genre: Genre) => void;
   onFilterRanking: (rankType: string) => void;
@@ -65,7 +67,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenBookmarks,
   onOpenNotes,
   onOpenOffline,
-  onOpenSync,
+  onOpenAccount,
+  accountName,
   onOpenAdmin,
   onFilterGenre,
   onFilterRanking,
@@ -421,6 +424,16 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <Globe className="w-3.5 h-3.5 text-stone-500" />
               <span>{currentLang === 'vi' ? 'VI' : 'EN'}</span>
+            </button>
+
+            {/* Account Button */}
+            <button
+              onClick={onOpenAccount}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-stone-100 hover:bg-stone-200 text-stone-700 transition-colors cursor-pointer"
+              title="Tài khoản"
+            >
+              <User className="w-3.5 h-3.5 text-stone-500" />
+              <span className="hidden sm:inline max-w-24 truncate">{accountName || 'Đăng nhập'}</span>
             </button>
 
             {/* Admin Portal Button */}

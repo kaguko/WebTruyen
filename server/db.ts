@@ -26,6 +26,20 @@ db.exec(`
     created_at INTEGER NOT NULL,
     data TEXT NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS user_data (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    data TEXT NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, kind)
+  );
   CREATE TABLE IF NOT EXISTS crawl_config (story_id TEXT PRIMARY KEY REFERENCES stories(id) ON DELETE CASCADE, data TEXT NOT NULL);
 `);
 
@@ -155,6 +169,44 @@ export const addComment = (c: StoryComment) => {
     Date.now(),
     JSON.stringify(c),
   );
+};
+
+// ---- Reader accounts ----
+export interface UserRow {
+  id: number;
+  email: string;
+  name: string;
+  password_hash: string;
+}
+export const findUserByEmail = (email: string) =>
+  db.prepare('SELECT * FROM users WHERE email = ?').get(email) as unknown as UserRow | undefined;
+export const findUserById = (id: number) =>
+  db.prepare('SELECT * FROM users WHERE id = ?').get(id) as unknown as UserRow | undefined;
+export const createUser = (email: string, name: string, passwordHash: string): number =>
+  Number(
+    db.prepare('INSERT INTO users (email, name, password_hash, created_at) VALUES (?, ?, ?, ?)').run(
+      email,
+      name,
+      passwordHash,
+      Date.now(),
+    ).lastInsertRowid,
+  );
+export const deleteUser = (id: number) => {
+  db.prepare('DELETE FROM users WHERE id = ?').run(id);
+};
+export const USER_DATA_KINDS = ['history', 'bookmarks', 'notes', 'settings'] as const;
+export const getUserData = (userId: number): Record<string, unknown> => {
+  const out: Record<string, unknown> = {};
+  for (const r of db.prepare('SELECT kind, data FROM user_data WHERE user_id = ?').all(userId) as any[]) {
+    out[r.kind] = JSON.parse(r.data);
+  }
+  return out;
+};
+export const setUserData = (userId: number, kind: string, value: unknown) => {
+  db.prepare(
+    `INSERT INTO user_data (user_id, kind, data, updated_at) VALUES (?, ?, ?, ?)
+     ON CONFLICT(user_id, kind) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`,
+  ).run(userId, kind, JSON.stringify(value), Date.now());
 };
 
 // ---- Crawl config ----

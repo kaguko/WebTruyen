@@ -26,6 +26,11 @@ import {
   getOfflineStories,
   getReaderSettings,
   saveReaderSettings,
+  setSyncEnabled,
+  syncFromServer,
+  flushSync,
+  pushDirty,
+  clearLocalUserData,
 } from './services/storage';
 import { parseRoute, storyPath, chapterPath, genrePath } from './routes';
 import { Language, translations } from './services/i18n';
@@ -35,6 +40,8 @@ import { StoryCard } from './components/StoryCard';
 import { RankingSidebar } from './components/RankingSidebar';
 import { StoryDetail } from './components/StoryDetail';
 import { ReaderView } from './components/ReaderView';
+import { AccountModal } from './components/AccountModal';
+import { api, AccountUser } from './services/api';
 import { AdminGate } from './components/AdminGate';
 const AdminPortal = lazy(() => import('./components/AdminPortal').then((m) => ({ default: m.AdminPortal })));
 import { UserCabinets } from './components/UserCabinets';
@@ -78,6 +85,8 @@ export default function App() {
   const [isCabinetOpen, setIsCabinetOpen] = useState(false);
   const [cabinetInitialTab, setCabinetInitialTab] = useState<'history' | 'bookmarks' | 'notes' | 'offline'>('history');
   const [isAdminOpen, setIsAdminOpen] = useState(false);
+  const [isAccountOpen, setIsAccountOpen] = useState(false);
+  const [user, setUser] = useState<AccountUser | null>(null);
 
   // Offline network status
   const [isOnline, setIsOnline] = useState<boolean>(
@@ -85,6 +94,28 @@ export default function App() {
   );
 
   const t = translations[currentLang];
+
+  // ---- Reader account ----
+  const signedIn = async (u: AccountUser, merge: boolean) => {
+    setSyncEnabled(true);
+    setUser(u);
+    try {
+      await syncFromServer(merge);
+    } catch {
+      /* offline: keep local data, will retry on next load */
+    }
+    refreshStorageData();
+  };
+
+  useEffect(() => {
+    api.auth
+      .me()
+      .then(({ user: u }) => u && signedIn(u, false))
+      .catch(() => {});
+    const onHide = () => document.visibilityState === 'hidden' && flushSync();
+    document.addEventListener('visibilitychange', onHide);
+    return () => document.removeEventListener('visibilitychange', onHide);
+  }, []);
 
   // Refresh all state from local storage
   const refreshStorageData = () => {
@@ -256,7 +287,8 @@ export default function App() {
             setCabinetInitialTab('offline');
             setIsCabinetOpen(true);
           }}
-          onOpenSync={() => setIsAdminOpen(true)}
+          onOpenAccount={() => setIsAccountOpen(true)}
+          accountName={user?.name}
           onOpenAdmin={() => setIsAdminOpen(true)}
           onFilterGenre={(genre) => {
             setSelectedGenre(genre);
@@ -516,6 +548,33 @@ export default function App() {
           onReadChapter={handleReadChapter}
           onSelectStory={handleSelectStory}
           onRefreshData={refreshStorageData}
+        />
+      )}
+
+      {isAccountOpen && (
+        <AccountModal
+          user={user}
+          onClose={() => setIsAccountOpen(false)}
+          onAuthenticated={async (u) => {
+            await signedIn(u, true);
+            setIsAccountOpen(false);
+          }}
+          onLogout={async () => {
+            await pushDirty();
+            await api.auth.logout();
+            setSyncEnabled(false);
+            clearLocalUserData();
+            setUser(null);
+            refreshStorageData();
+            setIsAccountOpen(false);
+          }}
+          onDeleted={async () => {
+            setSyncEnabled(false);
+            clearLocalUserData();
+            setUser(null);
+            refreshStorageData();
+            setIsAccountOpen(false);
+          }}
         />
       )}
 
