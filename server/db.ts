@@ -61,6 +61,24 @@ export const listChapters = (storyId: string): Chapter[] =>
   parse<Chapter>(
     db.prepare('SELECT data FROM chapters WHERE story_id = ? ORDER BY number').all(storyId) as any,
   );
+export const getChapter = (storyId: string, number: number): Chapter | undefined => {
+  const row = db.prepare('SELECT data FROM chapters WHERE story_id = ? AND number = ?').get(storyId, number) as any;
+  return row ? JSON.parse(row.data) : undefined;
+};
+/** Paginated chapter list without the (large) content field; optional search by title or chapter number. */
+export const listChapterMetas = (storyId: string, offset: number, limit: number, q = '') => {
+  const like = `%${q.replace(/[\\%_]/g, (c) => '\\' + c)}%`;
+  const where = q ? "AND (json_extract(data, '$.title') LIKE ? ESCAPE '\\' OR CAST(number AS TEXT) = ?)" : '';
+  const args: (string | number)[] = q ? [storyId, like, q] : [storyId];
+  const total = (db.prepare(`SELECT COUNT(*) AS n FROM chapters WHERE story_id = ? ${where}`).get(...args) as any).n;
+  const rows = db
+    .prepare(
+      `SELECT json_remove(data, '$.content') AS data FROM chapters WHERE story_id = ? ${where}
+       ORDER BY number LIMIT ? OFFSET ?`,
+    )
+    .all(...args, limit, offset) as any[];
+  return { items: parse<Omit<Chapter, 'content'>>(rows), total };
+};
 export const upsertChapter = (c: Chapter) => {
   db.prepare('INSERT OR REPLACE INTO chapters (story_id, number, data) VALUES (?, ?, ?)').run(
     c.storyId,

@@ -27,13 +27,15 @@ import {
 import {
   Story,
   Chapter,
+  ChapterMeta,
   ReaderSettings,
   PersonalNote,
   AdSlot,
 } from '../types';
 import {
   saveReadingHistory,
-  loadChapters,
+  loadChapter,
+  loadChapterPage,
   getPersonalNotes,
   savePersonalNote,
   deletePersonalNote,
@@ -66,7 +68,13 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
 }) => {
   const t = translations[currentLang];
   const [currentChapterNum, setCurrentChapterNum] = useState(initialChapterNumber);
-  const [allChapters, setAllChapters] = useState<Chapter[]>([]);
+  const [totalChapters, setTotalChapters] = useState(story.totalChapters);
+  const [loadError, setLoadError] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
+  // Chapter-selector drawer (paginated + searchable)
+  const [drawerChapters, setDrawerChapters] = useState<ChapterMeta[]>([]);
+  const [drawerTotal, setDrawerTotal] = useState(0);
+  const [drawerQuery, setDrawerQuery] = useState('');
   const [currentChapter, setCurrentChapter] = useState<Chapter | null>(null);
   
   // UI Panels
@@ -105,8 +113,8 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
   // Load chapters
   useEffect(() => {
     let cancelled = false;
-    void loadChapters(story.id).then((chapters) => {
-      if (!cancelled) setAllChapters(chapters);
+    void loadChapterPage(story.id, 0, 1).then((p) => {
+      if (!cancelled && p.total > 0) setTotalChapters(p.total);
     });
     setBookmarked(isBookmarked(story.id));
     setNotes(getPersonalNotes(story.id));
@@ -117,24 +125,58 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
 
   // Set active chapter
   useEffect(() => {
-    if (allChapters.length === 0) return;
-    const found = allChapters.find((c) => c.chapterNumber === currentChapterNum) || allChapters[0];
-    setCurrentChapter(found);
-    void api.countView(story.id, found.chapterNumber);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    let cancelled = false;
+    setLoadError(false);
+    void loadChapter(story.id, currentChapterNum).then((found) => {
+      if (cancelled) return;
+      if (!found) {
+        setLoadError(true);
+        return;
+      }
+      setCurrentChapter(found);
+      void api.countView(story.id, found.chapterNumber);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
 
-    // Save reading history
-    saveReadingHistory({
-      storyId: story.id,
-      storyTitle: story.title,
-      storyCover: story.cover,
-      chapterId: found.id,
-      chapterNumber: found.chapterNumber,
-      chapterTitle: found.title,
-      scrollPercent: 0,
-      updatedAt: new Date().toISOString(),
+      // Save reading history
+      saveReadingHistory({
+        storyId: story.id,
+        storyTitle: story.title,
+        storyCover: story.cover,
+        chapterId: found.id,
+        chapterNumber: found.chapterNumber,
+        chapterTitle: found.title,
+        scrollPercent: 0,
+        updatedAt: new Date().toISOString(),
+      });
     });
-  }, [currentChapterNum, allChapters, story]);
+    return () => {
+      cancelled = true;
+    };
+  }, [currentChapterNum, story, retryKey]);
+
+  // Chapter drawer: load first page / search results when opened or query changes
+  useEffect(() => {
+    if (!showChapterSelector) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void loadChapterPage(story.id, 0, 50, drawerQuery).then((p) => {
+        if (cancelled) return;
+        setDrawerChapters(p.items);
+        setDrawerTotal(p.total);
+      });
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [showChapterSelector, drawerQuery, story.id]);
+
+  const loadMoreDrawer = () => {
+    void loadChapterPage(story.id, drawerChapters.length, 50, drawerQuery).then((p) => {
+      setDrawerChapters((prev) => [...prev, ...p.items]);
+      setDrawerTotal(p.total);
+    });
+  };
 
   // Track scroll position
   useEffect(() => {
@@ -173,13 +215,13 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
       }
       if (e.key === 'ArrowLeft' && currentChapterNum > 1) {
         goToPrevChapter();
-      } else if (e.key === 'ArrowRight' && currentChapterNum < allChapters.length) {
+      } else if (e.key === 'ArrowRight' && currentChapterNum < totalChapters) {
         goToNextChapter();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentChapterNum, allChapters]);
+  }, [currentChapterNum, totalChapters]);
 
   // Auto-scroll loop
   useEffect(() => {
@@ -213,7 +255,7 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
   };
 
   const goToNextChapter = () => {
-    if (currentChapterNum < allChapters.length) {
+    if (currentChapterNum < totalChapters) {
       ttsService.stop();
       setCurrentChapterNum(currentChapterNum + 1);
     }
@@ -347,6 +389,20 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
         return 'hl-yellow';
     }
   };
+
+  if (loadError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6 text-center">
+        <div className="space-y-3">
+          <p className="text-sm text-stone-600">Không tải được chương này. Kiểm tra kết nối mạng hoặc chương không tồn tại.</p>
+          <div className="flex gap-2 justify-center">
+            <button onClick={() => setRetryKey((k) => k + 1)} className="px-4 py-2 rounded-xl bg-emerald-700 text-white text-sm font-bold cursor-pointer">Thử lại</button>
+            <button onClick={onBack} className="px-4 py-2 rounded-xl bg-stone-200 text-sm font-bold cursor-pointer">Quay lại</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!currentChapter) {
     return (
@@ -622,14 +678,14 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
             onClick={() => setShowChapterSelector(true)}
             className="text-xs sm:text-sm font-semibold text-stone-600 dark:text-stone-300 hover:underline px-3 py-2 cursor-pointer"
           >
-            Chương {currentChapter.chapterNumber} / {allChapters.length}
+            Chương {currentChapter.chapterNumber} / {totalChapters}
           </button>
 
           <button
             onClick={goToNextChapter}
-            disabled={currentChapterNum >= allChapters.length}
+            disabled={currentChapterNum >= totalChapters}
             className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm cursor-pointer transition-all ${
-              currentChapterNum >= allChapters.length
+              currentChapterNum >= totalChapters
                 ? 'opacity-40 cursor-not-allowed bg-stone-200 dark:bg-stone-800 text-stone-400'
                 : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm'
             }`}
@@ -822,7 +878,7 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
         <div className="fixed inset-y-0 left-0 w-80 sm:w-96 bg-white dark:bg-stone-900 border-r border-stone-200 dark:border-stone-800 shadow-2xl p-5 z-50 overflow-y-auto animate-in slide-in-from-left duration-200">
           <div className="flex items-center justify-between pb-3 border-b border-stone-100 dark:border-stone-800">
             <h3 className="font-bold text-sm sm:text-base text-stone-900 dark:text-white">
-              {t.chaptersList} ({allChapters.length})
+              {t.chaptersList} ({drawerTotal || totalChapters})
             </h3>
             <button
               onClick={() => setShowChapterSelector(false)}
@@ -832,8 +888,15 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
             </button>
           </div>
 
+          <input
+            type="text"
+            value={drawerQuery}
+            onChange={(e) => setDrawerQuery(e.target.value)}
+            placeholder="Tìm số chương hoặc tên chương..."
+            className="mt-3 w-full px-3 py-1.5 text-xs bg-stone-100 text-stone-900 rounded-xl border border-stone-200 focus:outline-none focus:border-emerald-500"
+          />
           <div className="mt-4 space-y-1">
-            {allChapters.map((ch) => (
+            {drawerChapters.map((ch) => (
               <button
                 key={ch.id}
                 onClick={() => {
@@ -850,6 +913,14 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
                 {ch.chapterNumber === currentChapterNum && <Check className="w-4 h-4 shrink-0 ml-2" />}
               </button>
             ))}
+            {drawerChapters.length < drawerTotal && (
+              <button
+                onClick={loadMoreDrawer}
+                className="w-full p-2.5 rounded-xl text-xs font-bold text-emerald-700 hover:bg-emerald-50 cursor-pointer"
+              >
+                Xem thêm ({drawerTotal - drawerChapters.length} chương)
+              </button>
+            )}
           </div>
         </div>
       )}

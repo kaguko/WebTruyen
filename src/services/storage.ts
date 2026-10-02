@@ -1,6 +1,8 @@
 import {
   Story,
   Chapter,
+  ChapterMeta,
+  ChapterPage,
   ReadingHistoryItem,
   BookmarkItem,
   PersonalNote,
@@ -88,12 +90,27 @@ export const markNotificationsAsRead = (notifications: PushNotification[]) => {
   writeCache(STORAGE_KEYS.NOTIFICATIONS, [...ids].slice(-200));
 };
 
-/** Chapters from the server; falls back to the offline copy when the network is unavailable. */
-export const loadChapters = async (storyId: string): Promise<Chapter[]> => {
+const toMeta = ({ content: _content, ...meta }: Chapter): ChapterMeta => meta;
+
+/** One page of the chapter list; falls back to the offline copy when the network is unavailable. */
+export const loadChapterPage = async (storyId: string, offset = 0, limit = 50, q = ''): Promise<ChapterPage> => {
   try {
-    return await api.chapters(storyId);
+    return await api.chapterPage(storyId, offset, limit, q);
   } catch {
-    return getOfflineStories()[storyId]?.chapters ?? [];
+    const needle = q.trim().toLowerCase();
+    const all = (getOfflineStories()[storyId]?.chapters ?? []).filter(
+      (c) => !needle || c.title.toLowerCase().includes(needle) || String(c.chapterNumber) === needle,
+    );
+    return { items: all.slice(offset, offset + limit).map(toMeta), total: all.length };
+  }
+};
+
+/** A single chapter with content; falls back to the offline copy. Returns null if it doesn't exist. */
+export const loadChapter = async (storyId: string, n: number): Promise<Chapter | null> => {
+  try {
+    return await api.chapter(storyId, n);
+  } catch {
+    return getOfflineStories()[storyId]?.chapters.find((c) => c.chapterNumber === n) ?? null;
   }
 };
 

@@ -1,4 +1,4 @@
-import { Story, Chapter, AdSlot, PushNotification, StoryComment } from '../types';
+import { Story, Chapter, ChapterPage, AdSlot, PushNotification, StoryComment } from '../types';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
@@ -22,7 +22,10 @@ const send = <T>(method: string, path: string, body?: unknown) =>
 
 export const api = {
   stories: () => request<Story[]>('/stories'),
-  chapters: (storyId: string) => request<Chapter[]>(`/stories/${storyId}/chapters`),
+  chapterPage: (storyId: string, offset = 0, limit = 50, q = '') =>
+    request<ChapterPage>(`/stories/${storyId}/chapters?offset=${offset}&limit=${limit}&q=${encodeURIComponent(q)}`),
+  chapter: (storyId: string, n: number) => request<Chapter>(`/stories/${storyId}/chapters/${n}`),
+  download: (storyId: string) => request<Chapter[]>(`/stories/${storyId}/download`),
   countView: (storyId: string, n: number) => send('POST', `/stories/${storyId}/chapters/${n}/view`).catch(() => {}),
   ads: () => request<AdSlot[]>('/ads'),
   adClick: (id: string) => send('POST', `/ads/${id}/click`).catch(() => {}),

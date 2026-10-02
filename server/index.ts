@@ -39,7 +39,23 @@ const slugify = (t: string) =>
 const api = express.Router();
 
 api.get('/stories', (_req, res) => res.json(db.listStories()));
+const int = (v: unknown, def: number, min: number, max: number) =>
+  Math.min(max, Math.max(min, Number.isFinite(Number(v)) ? Math.floor(Number(v)) : def));
+// Chapter list (no content), paginated: ?offset=0&limit=50&q=search
 api.get('/stories/:id/chapters', (req, res) => {
+  if (!db.getStory(req.params.id)) return res.status(404).json({ error: 'Not found' });
+  res.json(
+    db.listChapterMetas(req.params.id, int(req.query.offset, 0, 0, 1e9), int(req.query.limit, 50, 1, 200), str(req.query.q, 100)),
+  );
+});
+// Full content of one chapter
+api.get('/stories/:id/chapters/:n', (req, res) => {
+  const ch = db.getChapter(req.params.id, Number(req.params.n));
+  if (!ch) return res.status(404).json({ error: 'Not found' });
+  res.json(ch);
+});
+// Whole story with content, used for "download for offline reading"
+api.get('/stories/:id/download', (req, res) => {
   if (!db.getStory(req.params.id)) return res.status(404).json({ error: 'Not found' });
   res.json(db.listChapters(req.params.id));
 });
