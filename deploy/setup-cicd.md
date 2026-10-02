@@ -1,84 +1,121 @@
-# Thiết lập CI/CD (tự động deploy bằng GitHub Actions)
+# Thiết lập CI/CD (tự động deploy bằng GitHub Actions + AWS SSM)
 
-Mỗi khi có commit vào `main`, workflow `.github/workflows/deploy.yml` sẽ SSH vào VPS và chạy: `git pull` → backup → `docker compose up -d --build` → kiểm tra `/api/health`.
+Mỗi khi có commit vào `main`, workflow `.github/workflows/deploy.yml` gọi **AWS Systems Manager (SSM)** để chạy trên VPS: `git pull` → backup → `docker compose up -d --build` → kiểm tra `/api/health`.
 
-> **Giới hạn:** Claude không làm được các bước thủ công dưới đây (tạo key trên máy bạn, dán key vào VPS, thêm Secrets trên GitHub). Bạn tự làm theo hướng dẫn. **Không gửi private key cho ai, kể cả Claude.**
+Cách này **không dùng SSH**: không cần mở cổng 22, không cần SSH key. GitHub chỉ gọi API của AWS.
 
-Thông tin VPS hiện tại: Amazon Linux 2023, user `ec2-user`, thư mục `/opt/WebTruyen`.
+> **Giới hạn:** Claude không thao tác được trên tài khoản AWS/GitHub của bạn. Các bước dưới đây bạn tự bấm trên web. **Không gửi Access Key cho ai, kể cả Claude.**
 
-## 1. Tạo SSH key riêng cho GitHub (trên Windows)
-Mở PowerShell:
-```powershell
-ssh-keygen -t ed25519 -C "github-deploy" -f $env:USERPROFILE\.ssh\github_deploy
-```
-Khi hỏi passphrase, **để trống** (bấm Enter 2 lần; GitHub Actions không nhập được passphrase). Sẽ có 2 file:
-- `github_deploy` — private key (bí mật)
-- `github_deploy.pub` — public key
+Thông tin hiện tại: VPS Amazon Linux 2023, thư mục `/opt/WebTruyen`, user chạy docker là `ec2-user`.
 
-## 2. Dán public key vào VPS
-Đăng nhập VPS bằng key AWS cũ:
-```powershell
-ssh -i webtruyen-key.pem ec2-user@<IP-VPS>
-```
-Rồi trên VPS (thay nội dung trong dấu nháy bằng nội dung file `github_deploy.pub`, một dòng):
+## Phần A. Cho VPS nhận lệnh từ SSM (làm 1 lần)
+
+### A1. Tạo IAM Role cho VPS
+1. AWS Console → **IAM** → **Roles** → **Create role**.
+2. Trusted entity type: **AWS service** → Use case: **EC2** → Next.
+3. Ô tìm kiếm policy: gõ `AmazonSSMManagedInstanceCore` → tick → Next.
+4. Role name: `EC2-SSM-Role` → **Create role**.
+
+### A2. Gắn Role vào VPS
+1. **EC2** → **Instances** → tick vào VPS.
+2. **Actions → Security → Modify IAM role** → chọn `EC2-SSM-Role` → **Update IAM role**.
+3. Đợi khoảng 5 phút. (Nếu sau đó vẫn không thấy ở A3, vào Instance → **Reboot**.)
+
+### A3. Kiểm tra VPS đã kết nối SSM
+- AWS Console → **Systems Manager** → **Fleet Manager** (hoặc **Node Management → Fleet Manager**). VPS phải hiện trạng thái **Online**.
+- Hoặc EC2 → chọn instance → **Connect** → tab **Session Manager** → **Connect**. Nếu mở được cửa sổ dòng lệnh là xong.
+
+Ghi lại **Instance ID** (dạng `i-0123456789abcdef0`) và **Region** (góc trên bên phải console, ví dụ `ap-southeast-2`).
+
+### A4. Chuẩn bị VPS để `git pull` không hỏi mật khẩu
+Trong Session Manager (A3), chạy từng khối:
 ```bash
-mkdir -p ~/.ssh && chmod 700 ~/.ssh
-echo "ssh-ed25519 AAAA... github-deploy" >> ~/.ssh/authorized_keys
-chmod 600 ~/.ssh/authorized_keys
-```
-Test từ Windows: `ssh -i $env:USERPROFILE\.ssh\github_deploy ec2-user@<IP-VPS>` phải vào được không hỏi mật khẩu.
-
-## 3. Chuẩn bị thư mục trên VPS (làm 1 lần)
-```bash
+sudo -u ec2-user -H bash
 cd /opt/WebTruyen
 git status                      # phải sạch, đang ở nhánh main
-git remote -v                   # repo là private: cần cách pull không hỏi mật khẩu
+git remote -v
 ```
-Vì repo **private**, VPS cần quyền pull. Cách dễ nhất là Deploy key (chỉ đọc):
+Repo là **private**, nên VPS cần quyền đọc. Dùng Deploy key (chỉ đọc):
 ```bash
 ssh-keygen -t ed25519 -N "" -f ~/.ssh/github_pull -C "vps-pull"
 cat ~/.ssh/github_pull.pub      # copy dòng này
 ```
-GitHub repo → Settings → Deploy keys → Add deploy key → dán (không tick Write access). Rồi trên VPS:
+GitHub repo → **Settings → Deploy keys → Add deploy key** → dán (không tick Write access). Rồi trên VPS:
 ```bash
 printf 'Host github.com\n  IdentityFile ~/.ssh/github_pull\n  IdentitiesOnly yes\n' >> ~/.ssh/config
 chmod 600 ~/.ssh/config
 git remote set-url origin git@github.com:kaguko/WebTruyen.git
-ssh -T git@github.com           # chấp nhận fingerprint lần đầu; báo "successfully authenticated" là được
+ssh -T git@github.com           # gõ yes lần đầu; báo "successfully authenticated" là được
 git pull --ff-only origin main
+docker ps                       # phải chạy được không cần sudo
+./deploy/backup.sh              # phải chạy được
 ```
-Đảm bảo `ec2-user` chạy được docker không cần sudo: `docker ps` (nếu lỗi: `sudo usermod -aG docker ec2-user` rồi đăng nhập lại) và `./deploy/backup.sh` chạy được.
+(Việc này dùng kết nối ra ngoài tới github.com, không liên quan tới cổng 22 của VPS.)
 
-## 4. Thêm 3 GitHub Secrets
-Repo trên GitHub → **Settings → Secrets and variables → Actions → New repository secret**:
+## Phần B. Cho GitHub gọi SSM
+
+### B1. Tạo IAM user chỉ có quyền deploy
+1. **IAM → Policies → Create policy → JSON**, dán (thay `REGION`, `ACCOUNT_ID` (12 số, xem ở góc trên phải console) và `INSTANCE_ID`):
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "ssm:SendCommand",
+      "Resource": [
+        "arn:aws:ec2:REGION:ACCOUNT_ID:instance/INSTANCE_ID",
+        "arn:aws:ssm:REGION::document/AWS-RunShellScript"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["ssm:GetCommandInvocation", "ssm:ListCommandInvocations"],
+      "Resource": "*"
+    }
+  ]
+}
+```
+   Đặt tên `GitHubDeployWebTruyen` → Create policy.
+2. **IAM → Users → Create user** → tên `github-deploy` (không cần quyền đăng nhập console) → **Attach policies directly** → chọn `GitHubDeployWebTruyen` → Create user.
+3. Mở user → tab **Security credentials** → **Create access key** → chọn **Application running outside AWS** → tạo, rồi copy **Access key ID** và **Secret access key** (secret chỉ hiện một lần).
+
+### B2. Thêm vào GitHub
+Repo → **Settings → Secrets and variables → Actions**:
+
+Tab **Secrets** → New repository secret:
 
 | Tên | Giá trị |
 |---|---|
-| `SSH_HOST` | IP hoặc tên miền của VPS |
-| `SSH_USER` | `ec2-user` |
-| `SSH_PRIVATE_KEY` | toàn bộ nội dung file `github_deploy` (private key), gồm cả dòng `-----BEGIN ...` và `-----END ...` |
+| `AWS_ACCESS_KEY_ID` | Access key ID của user `github-deploy` |
+| `AWS_SECRET_ACCESS_KEY` | Secret access key tương ứng |
+| `SSM_INSTANCE_ID` | Instance ID của VPS, ví dụ `i-0123456789abcdef0` |
 
-Lấy private key trên Windows: `Get-Content $env:USERPROFILE\.ssh\github_deploy | Set-Clipboard`
+Tab **Variables** → New repository variable:
 
-## 5. Test chạy tay
-1. Merge PR chứa workflow vào `main`.
-2. Tab **Actions** → chọn **Deploy to VPS** → **Run workflow** → nhánh `main` → Run.
-3. Bấm vào lần chạy để xem log. Xanh ✅ là deploy xong; kiểm tra `https://<tên-miền>/api/health`.
-4. Sau đó push 1 commit nhỏ vào `main` để thử chạy tự động.
+| Tên | Giá trị |
+|---|---|
+| `AWS_REGION` | Region của VPS, ví dụ `ap-southeast-2` |
 
-## 6. Khi workflow bị lỗi
+Có thể xoá các secret cũ `SSH_HOST`, `SSH_USER`, `SSH_PRIVATE_KEY` vì không còn dùng.
+
+## Phần C. Test
+1. Tab **Actions** → **Deploy to VPS** → **Run workflow** → nhánh `main` → Run.
+2. Mở lần chạy để xem log. Xanh ✅ là xong; kiểm tra `https://<tên-miền>/api/health`.
+3. Sau đó push 1 commit nhỏ vào `main` để thử chạy tự động.
+
+## Khi workflow bị lỗi
 | Triệu chứng trong log | Cách xử lý |
 |---|---|
-| `ssh: handshake failed` / `unable to authenticate` | Sai `SSH_PRIVATE_KEY` (thiếu dòng BEGIN/END, copy thiếu) hoặc public key chưa nằm trong `~/.ssh/authorized_keys`, hoặc sai `SSH_USER`. |
-| `dial tcp ***:22: i/o timeout` | Runner của GitHub không tới được cổng 22. Nguyên nhân thường gặp nhất: Security Group đang chỉ cho SSH từ IP cá nhân của bạn. IP của GitHub Actions thay đổi liên tục nên không thể whitelist gọn; cách đơn giản là mở cổng 22 cho `0.0.0.0/0` (an toàn nếu chỉ cho đăng nhập bằng key, tắt password: `PasswordAuthentication no`). Cũng kiểm tra `SSH_HOST` đúng IP và instance đang chạy. |
-| `connection refused` | Sai `SSH_HOST` hoặc sshd không chạy trên VPS. |
-| `Permission denied (publickey)` ở bước `git pull` | Chưa làm Deploy key ở bước 3. |
-| `fatal: Not possible to fast-forward` | VPS có commit/sửa tay lệch với main. SSH vào xem `git status`, xử lý rồi chạy lại. |
-| `permission denied ... docker.sock` | `ec2-user` chưa thuộc nhóm docker (bước 3). |
-| `Health check FAILED` | Xem log in ra cuối, hoặc trên VPS: `docker compose logs app`. Thường do thiếu/sai `.env`. Bản backup trước deploy nằm ở `/opt/WebTruyen/backups`. |
+| `Unable to locate credentials` / `InvalidClientTokenId` | Sai hoặc thiếu `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`. |
+| `You must specify a region` | Chưa tạo Variable `AWS_REGION` (phải ở tab **Variables**, không phải Secrets). |
+| `AccessDeniedException ... ssm:SendCommand` | Policy ở B1 sai `REGION`, `ACCOUNT_ID` hoặc `INSTANCE_ID`. |
+| `InvalidInstanceId` | Instance ID sai, hoặc VPS chưa Online trong SSM (làm lại A1–A3). |
+| `Trạng thái: Failed` | Đọc phần log in ra bên dưới (lỗi thật của lệnh trên VPS). Thường gặp: `git pull` bị từ chối (chưa làm A4), `docker.sock permission denied`, thiếu `.env`. |
+| `Health check FAILED` | Log cuối có 50 dòng của app; hoặc trên VPS: `docker compose logs app`. Bản backup trước deploy nằm ở `/opt/WebTruyen/backups`. |
+| `Not possible to fast-forward` | VPS có sửa tay lệch với main. Vào Session Manager, `git status`, xử lý rồi chạy lại. |
 
-SSH vào VPS bằng key AWS cũ (`webtruyen-key.pem`) vẫn dùng được để sửa tay khi cần.
-
-## 7. Bảo mật
+## Bảo mật
 - Không commit `*.pem`, `*.key`, `.env` (đã chặn trong `.gitignore`).
-- Nếu nghi lộ private key: xoá dòng `github-deploy` trong `~/.ssh/authorized_keys` trên VPS, tạo key mới và cập nhật Secret.
+- User `github-deploy` chỉ có quyền gửi lệnh tới đúng VPS này. Nếu nghi lộ key: IAM → user → xoá access key cũ, tạo key mới, cập nhật Secret.
+- Sau khi dùng SSM ổn định, bạn có thể đóng cổng 22 trong Security Group (vẫn vào VPS qua Session Manager).

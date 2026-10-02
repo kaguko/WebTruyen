@@ -1,7 +1,9 @@
 # Tự động deploy lên VPS AWS mỗi khi có commit mới vào nhánh main.
-# Cách hoạt động: GitHub Actions SSH vào VPS rồi chạy các lệnh ở phần `script`.
+# Cách hoạt động: GitHub Actions gọi AWS Systems Manager (SSM) để chạy lệnh trên VPS.
+# KHÔNG dùng SSH, KHÔNG cần mở cổng 22.
 # Cần 3 GitHub Secrets (Settings > Secrets and variables > Actions):
-#   SSH_HOST, SSH_USER, SSH_PRIVATE_KEY  (xem deploy/setup-cicd.md)
+#   AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, SSM_INSTANCE_ID   (xem deploy/setup-cicd.md)
+# Và 1 GitHub Variable (tab Variables, không phải Secrets): AWS_REGION  (ví dụ ap-southeast-2)
 name: Deploy to VPS
 
 on:
@@ -18,40 +20,71 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ${{ vars.AWS_REGION }}
+      INSTANCE_ID: ${{ secrets.SSM_INSTANCE_ID }}
     steps:
-      - name: SSH vào VPS và deploy
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: |
-            set -euo pipefail
+      - name: Gửi lệnh deploy tới VPS qua SSM
+        run: |
+          set -euo pipefail
 
-            cd /opt/WebTruyen
+          # Script chạy TRÊN VPS, dưới user ec2-user (user này có quyền docker và git deploy key).
+          cat > remote.sh <<'REMOTE'
+          set -euo pipefail
+          cd /opt/WebTruyen
 
-            # 1. Lấy code mới nhất (--ff-only: không tự merge, lỗi nếu VPS có sửa tay)
-            git fetch origin main
-            git checkout main
-            git pull --ff-only origin main
+          # 1. Lấy code mới nhất (--ff-only: lỗi nếu VPS có sửa tay lệch với main)
+          git fetch origin main
+          git checkout main
+          git pull --ff-only origin main
 
-            # 2. Backup database trước khi deploy
-            ./deploy/backup.sh
+          # 2. Backup database trước khi deploy
+          ./deploy/backup.sh
 
-            # 3. Build lại và khởi động
-            docker compose up -d --build
+          # 3. Build lại và khởi động
+          docker compose up -d --build
 
-            # 4. Kiểm tra sức khỏe app (thử tối đa 30 lần, cách nhau 2 giây).
-            #    Gọi thẳng vào container app (cổng 3000) vì Caddy ở cổng 80
-            #    chỉ chuyển hướng sang HTTPS nên curl -f sẽ không bắt được lỗi.
-            for i in $(seq 1 30); do
-              if docker compose exec -T app node -e "fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"; then
-                echo "Health check OK"
-                exit 0
-              fi
-              sleep 2
-            done
-            echo "Health check FAILED"
-            docker compose logs --tail=50 app
-            exit 1
+          # 4. Kiểm tra sức khỏe app (tối đa 30 lần, cách nhau 2 giây).
+          #    Gọi thẳng container app (cổng 3000), vì Caddy ở cổng 80 chỉ chuyển hướng sang HTTPS.
+          for i in $(seq 1 30); do
+            if docker compose exec -T app node -e "fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"; then
+              echo "Health check OK"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Health check FAILED"
+          docker compose logs --tail=50 app
+          exit 1
+          REMOTE
+
+          # Bọc script để chạy bằng ec2-user (SSM mặc định chạy bằng root).
+          B64=$(base64 -w0 remote.sh)
+          CMD="echo $B64 | base64 -d > /tmp/deploy.sh && sudo -u ec2-user -H bash /tmp/deploy.sh"
+
+          CMD_ID=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name AWS-RunShellScript \
+            --comment "GitHub Actions deploy ${GITHUB_SHA::7}" \
+            --parameters "$(jq -n --arg c "$CMD" '{commands: [$c], executionTimeout: ["1500"]}')" \
+            --query Command.CommandId --output text)
+          echo "SSM command id: $CMD_ID"
+
+          # Chờ lệnh chạy xong (tối đa ~25 phút), rồi in log và báo lỗi nếu thất bại.
+          STATUS=Pending
+          for i in $(seq 1 300); do
+            sleep 5
+            STATUS=$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+              --query Status --output text 2>/dev/null || echo Pending)
+            case "$STATUS" in
+              Success|Failed|Cancelled|TimedOut|Cancelling) break ;;
+            esac
+          done
+
+          echo "Trạng thái: $STATUS"
+          aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+            --query '[StandardOutputContent, StandardErrorContent]' --output text || true
+          [ "$STATUS" = "Success" ]
