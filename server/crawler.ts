@@ -115,8 +115,56 @@ function collectLinks(toc: cheerio.CheerioAPI, tocUrl: string, selector?: string
   return links;
 }
 
+const PAGE_PARAM = /(\/trang-|\/page[-/]|[?&]page=|\/p-)(\d+)/i;
+const MAX_TOC_PAGES = 200;
+
+/** Pagination of a TOC (".../trang-2/", "?page=2", ...): returns a builder for page N and the last page number. */
+function tocPages(toc: cheerio.CheerioAPI, tocUrl: string): { max: number; urlFor: (n: number) => string } | undefined {
+  const base = new URL(tocUrl);
+  const basePath = base.pathname.replace(/\/$/, '');
+  let best: { max: number; tpl: string } | undefined;
+  toc('a[href]').each((_, a) => {
+    let u: URL;
+    try {
+      u = new URL(toc(a).attr('href')!, tocUrl);
+    } catch {
+      return;
+    }
+    if (u.host !== base.host || !u.pathname.startsWith(basePath)) return;
+    const rel = u.pathname + u.search;
+    const m = PAGE_PARAM.exec(rel);
+    if (!m) return;
+    const n = Number(m[2]);
+    if (!best || n > best.max) best = { max: n, tpl: `${u.origin}${rel.replace(PAGE_PARAM, (_x, pre) => `${pre}\u0000`)}` };
+  });
+  if (!best || best.max < 2) return undefined;
+  const { max, tpl } = best;
+  return { max: Math.min(max, MAX_TOC_PAGES), urlFor: (n) => tpl.replace('\u0000', String(n)) };
+}
+
+/** Chapter links across all TOC pages, stopping once `need` links are known (pass Infinity for all). */
+export async function collectAllLinks(cfg: CrawlConfig, need: number, onPage?: (page: number, max: number) => void) {
+  const toc = cheerio.load(await fetchHtml(cfg.tocUrl));
+  const links = collectLinks(toc, cfg.tocUrl, cfg.linkSelector || undefined);
+  const pages = tocPages(toc, cfg.tocUrl);
+  if (pages && links.length > 0) {
+    const seen = new Set(links.map((l) => l.url));
+    for (let n = 2; n <= pages.max && links.length < need; n++) {
+      onPage?.(n, pages.max);
+      const pageUrl = pages.urlFor(n);
+      const more = collectLinks(cheerio.load(await fetchHtml(pageUrl)), pageUrl, cfg.linkSelector || undefined);
+      let fresh = 0;
+      for (const l of more) if (!seen.has(l.url)) (seen.add(l.url), links.push(l), fresh++);
+      if (fresh === 0) break;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+  }
+  return { links, pages: pages?.max ?? 1 };
+}
+
 export interface CrawlPreview {
-  chapterTotal: number;
+  chapterTotal: number; // links found on the first TOC page
+  pages: number; // number of TOC pages
   firstTitle: string;
   sample: string[];
   paragraphs: number;
@@ -124,8 +172,7 @@ export interface CrawlPreview {
 
 /** Dry run for the admin UI: finds the chapter list and reads one chapter without saving anything. */
 export async function previewCrawl(cfg: CrawlConfig): Promise<CrawlPreview> {
-  const toc = cheerio.load(await fetchHtml(cfg.tocUrl));
-  const links = collectLinks(toc, cfg.tocUrl, cfg.linkSelector || undefined);
+  const { links, pages } = await collectAllLinks(cfg, 1);
   if (links.length === 0) {
     throw new Error('Không nhận ra danh sách chương trong link này. Hãy dán link trang chính của truyện (có liệt kê các chương), hoặc mở "Nâng cao" để nhập selector.');
   }
@@ -134,7 +181,7 @@ export async function previewCrawl(cfg: CrawlConfig): Promise<CrawlPreview> {
   if (content.length === 0) {
     throw new Error('Tìm thấy chương nhưng không đọc được nội dung. Hãy mở "Nâng cao" để nhập selector nội dung.');
   }
-  return { chapterTotal: links.length, firstTitle: links[0].text || 'Chương 1', sample: content.slice(0, 3).map((t) => t.slice(0, 200)), paragraphs: content.length };
+  return { chapterTotal: links.length, pages, firstTitle: links[0].text || 'Chương 1', sample: content.slice(0, 3).map((t) => t.slice(0, 200)), paragraphs: content.length };
 }
 
 export interface CrawlResult {
@@ -229,14 +276,13 @@ async function doCrawl(storyId: string, cfg: CrawlConfig, limit: number, opts: C
   if (!story) throw new Error('Không tìm thấy truyện');
 
   log(`Tải mục lục: ${cfg.tocUrl}`);
-  const toc = cheerio.load(await fetchHtml(cfg.tocUrl));
-  const links = collectLinks(toc, cfg.tocUrl, cfg.linkSelector || undefined);
+  const have = chapterCount(storyId);
+  const { links } = await collectAllLinks(cfg, have + limit, (n, max) => log(`Tải trang mục lục ${n}/${max}...`));
   log(`Tìm thấy ${links.length} chương trong mục lục.`);
   if (links.length === 0) throw new Error('Không tìm thấy link chương: hãy dán link trang chính của truyện, hoặc nhập selector ở mục Nâng cao.');
 
   saveCrawlConfig(storyId, cfg);
 
-  const have = chapterCount(storyId);
   const todo = links.slice(have, have + limit);
   if (todo.length === 0) {
     log('Không có chương mới.');

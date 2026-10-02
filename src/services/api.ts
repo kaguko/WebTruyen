@@ -99,7 +99,7 @@ export const api = {
       b: { tocUrl: string; linkSelector?: string; contentSelector?: string; titleSelector?: string; limit?: number },
     ) => send<{ started: boolean }>('POST', `/admin/stories/${id}/crawl`, b),
     crawlPreview: (b: { tocUrl: string; linkSelector?: string; contentSelector?: string }) =>
-      send<{ chapterTotal: number; firstTitle: string; sample: string[]; paragraphs: number }>('POST', '/admin/crawl-preview', b),
+      send<{ chapterTotal: number; pages: number; firstTitle: string; sample: string[]; paragraphs: number }>('POST', '/admin/crawl-preview', b),
     crawlStatus: (id: string) =>
       request<CrawlStatus>(`/admin/stories/${id}/crawl-status`),
     crawlStop: (id: string) => send<{ stopped: boolean }>('POST', `/admin/stories/${id}/crawl-stop`),
