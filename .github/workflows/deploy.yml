@@ -1,0 +1,58 @@
+# Tự động deploy lên VPS AWS mỗi khi có commit mới vào nhánh main.
+# Cách hoạt động: GitHub Actions SSH vào VPS rồi chạy các lệnh ở phần `script`.
+# Cần 3 GitHub Secrets (Settings > Secrets and variables > Actions):
+#   SSH_HOST, SSH_USER, SSH_PRIVATE_KEY  (xem deploy/setup-cicd.md)
+name: Deploy to VPS
+
+on:
+  push:
+    branches: [main]
+  # Cho phép bấm "Run workflow" trong tab Actions để chạy tay / test.
+  workflow_dispatch:
+
+# Không chạy 2 lần deploy cùng lúc.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: SSH vào VPS và deploy
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script_stop: true   # dừng ngay khi 1 lệnh lỗi
+          script: |
+            set -euo pipefail
+
+            cd /opt/WebTruyen
+
+            # 1. Lấy code mới nhất (--ff-only: không tự merge, lỗi nếu VPS có sửa tay)
+            git fetch origin main
+            git checkout main
+            git pull --ff-only origin main
+
+            # 2. Backup database trước khi deploy
+            ./deploy/backup.sh
+
+            # 3. Build lại và khởi động
+            docker compose up -d --build
+
+            # 4. Kiểm tra sức khỏe app (thử tối đa 30 lần, cách nhau 2 giây).
+            #    Gọi thẳng vào container app (cổng 3000) vì Caddy ở cổng 80
+            #    chỉ chuyển hướng sang HTTPS nên curl -f sẽ không bắt được lỗi.
+            for i in $(seq 1 30); do
+              if docker compose exec -T app node -e "fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"; then
+                echo "Health check OK"
+                exit 0
+              fi
+              sleep 2
+            done
+            echo "Health check FAILED"
+            docker compose logs --tail=50 app
+            exit 1
