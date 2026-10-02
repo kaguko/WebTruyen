@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { Story, Genre, PushNotification } from '../types';
 import { Language, translations } from '../services/i18n';
+import { formatTime } from '../services/format';
 import { markNotificationsAsRead } from '../services/storage';
 
 interface NavbarProps {
@@ -349,7 +350,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 onClick={() => {
                   setIsNotifOpen(!isNotifOpen);
                   if (!isNotifOpen && unreadCount > 0) {
-                    markNotificationsAsRead();
+                    markNotificationsAsRead(notifications);
                   }
                 }}
                 title={t.notifications}
@@ -398,7 +399,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                               {n.title}
                             </span>
                             <span className="text-[10px] text-stone-400 shrink-0">
-                              {n.timestamp}
+                              {formatTime(n.timestamp)}
                             </span>
                           </div>
                           <p className="text-[11px] text-stone-600 mt-1 line-clamp-2">

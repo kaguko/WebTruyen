@@ -33,13 +33,14 @@ import {
 } from '../types';
 import {
   saveReadingHistory,
-  getStoredChapters,
+  loadChapters,
   getPersonalNotes,
   savePersonalNote,
   deletePersonalNote,
   isBookmarked,
   toggleBookmark,
 } from '../services/storage';
+import { api } from '../services/api';
 import { ttsService, TTSState } from '../services/ttsService';
 import { Language, translations } from '../services/i18n';
 import { AdBanner } from './AdBanner';
@@ -103,10 +104,15 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
 
   // Load chapters
   useEffect(() => {
-    const chapters = getStoredChapters(story.id);
-    setAllChapters(chapters);
+    let cancelled = false;
+    void loadChapters(story.id).then((chapters) => {
+      if (!cancelled) setAllChapters(chapters);
+    });
     setBookmarked(isBookmarked(story.id));
     setNotes(getPersonalNotes(story.id));
+    return () => {
+      cancelled = true;
+    };
   }, [story.id]);
 
   // Set active chapter
@@ -114,6 +120,7 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
     if (allChapters.length === 0) return;
     const found = allChapters.find((c) => c.chapterNumber === currentChapterNum) || allChapters[0];
     setCurrentChapter(found);
+    void api.countView(story.id, found.chapterNumber);
     window.scrollTo({ top: 0, behavior: 'smooth' });
 
     // Save reading history

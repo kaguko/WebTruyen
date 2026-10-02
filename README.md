@@ -1,22 +1,27 @@
 # TruyenFull Live
 
-Web đọc truyện chữ (React 19 + Vite + Tailwind 4). Hỗ trợ đọc offline, đánh dấu, ghi chú,
-chế độ đọc tuỳ biến, TTS, quảng cáo/Shopee affiliate và cổng quản trị.
+Web đọc truyện chữ: React 19 + Vite + Tailwind 4 (frontend), Express + SQLite (backend, `node:sqlite`, cần Node ≥ 22.13).
 
-## Chạy & build
+## Kiến trúc
+- **Server-side (dùng chung mọi độc giả):** truyện, chương, quảng cáo/Shopee, thông báo, bình luận → SQLite (`DATA_DIR/truyen.db`).
+- **Trên trình duyệt từng độc giả:** lịch sử đọc, tủ truyện, ghi chú, cài đặt đọc, bản tải offline (localStorage). Chưa có tài khoản độc giả.
+- **Admin:** đăng nhập bằng `ADMIN_PASSWORD`, phiên lưu bằng cookie HttpOnly ký HMAC; mọi API ghi đều yêu cầu phiên admin.
+- **Crawler:** server tải trang mục lục + từng chương, bóc nội dung theo CSS selector admin nhập; chương N = link thứ N, chỉ tải chương chưa có. Có thể quét tự động (`CRAWL_INTERVAL_MIN`).
+
+## Chạy phát triển
 ```bash
 npm install
-cp .env.example .env     # đặt VITE_ADMIN_PASSWORD
-npm run dev              # http://localhost:3000
-npm run build            # xuất ra dist/ (static site, deploy lên Netlify/Vercel/Nginx...)
+cp .env.example .env   # rồi export các biến (hoặc dùng: set -a; . ./.env; set +a)
+npm run dev            # web http://localhost:3000, API :3001 (proxy tự động)
 ```
 
-## Cổng quản trị
-Bấm "Cổng Quản Trị Viên" ở footer, nhập mật khẩu `VITE_ADMIN_PASSWORD`.
-Mật khẩu được kiểm tra phía client nên chỉ ngăn người dùng thường.
+## Triển khai
+```bash
+npm run build && npm start        # hoặc: docker build -t truyen . && docker run -p 3000:3000 -v truyen-data:/data --env-file .env truyen
+```
+Khi chạy thật: đặt `ADMIN_PASSWORD`, `SESSION_SECRET`, `SEED_DEMO=false`, chạy sau HTTPS (Nginx/Caddy) với `TRUST_PROXY=1`, và **backup thư mục dữ liệu** định kỳ.
 
-## Giới hạn hiện tại
-- Toàn bộ dữ liệu (truyện, chương, quảng cáo, lịch sử) lưu trong `localStorage` của từng trình duyệt,
-  khởi tạo từ `src/data/mockStories.ts`. Thay đổi của admin chỉ có hiệu lực trên máy admin.
-- "Crawler" là mô phỏng (`src/services/crawlerSimulator.ts`), chưa thu thập từ nguồn thật.
-- Để chạy thật cho nhiều người dùng cần backend + database + xác thực phía server.
+## Việc cần làm cùng khách
+- Thay truyện mẫu, ảnh, link Shopee affiliate, tên thương hiệu/footer.
+- Trang điều khoản/chính sách; chỉ crawl nội dung có quyền sử dụng.
+- Chưa có: tài khoản độc giả (đồng bộ đa thiết bị), phân trang danh sách chương (API trả toàn bộ chương của truyện), sitemap/SEO theo từng truyện (hiện là SPA không có URL riêng cho truyện).

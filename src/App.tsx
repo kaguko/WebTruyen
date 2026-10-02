@@ -17,16 +17,15 @@ import {
   Genre,
 } from './types';
 import {
-  getStoredStories,
-  getStoredAds,
+  loadStories,
+  loadAds,
+  loadNotifications,
   getReadingHistory,
   getBookmarks,
   getPersonalNotes,
   getOfflineStories,
   getReaderSettings,
   saveReaderSettings,
-  getNotifications,
-  saveStoredStories,
 } from './services/storage';
 import { Language, translations } from './services/i18n';
 import { Navbar } from './components/Navbar';
@@ -88,13 +87,13 @@ export default function App() {
 
   // Refresh all state from local storage
   const refreshStorageData = () => {
-    setStories(getStoredStories());
-    setAds(getStoredAds());
+    void loadStories().then(setStories);
+    void loadAds().then(setAds);
+    void loadNotifications().then(setNotifications);
     setHistory(getReadingHistory());
     setBookmarks(getBookmarks());
     setPersonalNotes(getPersonalNotes());
     setOfflineStories(getOfflineStories());
-    setNotifications(getNotifications());
     setReaderSettings(getReaderSettings());
   };
 
@@ -468,11 +467,7 @@ export default function App() {
         <AdminPortal
           stories={stories}
           ads={ads}
-          onUpdateStories={(newStories) => {
-            setStories(newStories);
-            saveStoredStories(newStories);
-          }}
-          onUpdateAds={(newAds) => setAds(newAds)}
+          onDataChanged={refreshStorageData}
           onClose={() => {
             setIsAdminOpen(false);
             refreshStorageData();

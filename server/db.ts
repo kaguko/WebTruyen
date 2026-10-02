@@ -1,0 +1,167 @@
+import { DatabaseSync } from 'node:sqlite';
+import fs from 'node:fs';
+import path from 'node:path';
+import type { Story, Chapter, AdSlot, PushNotification, StoryComment } from '../src/types';
+import { INITIAL_STORIES, INITIAL_CHAPTERS, INITIAL_ADS } from '../src/data/mockStories';
+
+const DATA_DIR = process.env.DATA_DIR || path.resolve(process.cwd(), 'data');
+fs.mkdirSync(DATA_DIR, { recursive: true });
+
+export const db = new DatabaseSync(path.join(DATA_DIR, 'truyen.db'));
+db.exec(`
+  PRAGMA journal_mode = WAL;
+  PRAGMA foreign_keys = ON;
+  CREATE TABLE IF NOT EXISTS stories (id TEXT PRIMARY KEY, position INTEGER NOT NULL, data TEXT NOT NULL);
+  CREATE TABLE IF NOT EXISTS chapters (
+    story_id TEXT NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
+    number INTEGER NOT NULL,
+    data TEXT NOT NULL,
+    PRIMARY KEY (story_id, number)
+  );
+  CREATE TABLE IF NOT EXISTS ads (id TEXT PRIMARY KEY, position INTEGER NOT NULL, data TEXT NOT NULL);
+  CREATE TABLE IF NOT EXISTS notifications (id TEXT PRIMARY KEY, created_at INTEGER NOT NULL, data TEXT NOT NULL);
+  CREATE TABLE IF NOT EXISTS comments (
+    id TEXT PRIMARY KEY,
+    story_id TEXT NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
+    created_at INTEGER NOT NULL,
+    data TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS crawl_config (story_id TEXT PRIMARY KEY REFERENCES stories(id) ON DELETE CASCADE, data TEXT NOT NULL);
+`);
+
+const parse = <T>(rows: Array<{ data: string }>): T[] => rows.map((r) => JSON.parse(r.data) as T);
+
+// ---- Stories ----
+export const listStories = (): Story[] =>
+  parse<Story>(db.prepare('SELECT data FROM stories ORDER BY position DESC').all() as any);
+export const getStory = (id: string): Story | undefined => {
+  const row = db.prepare('SELECT data FROM stories WHERE id = ?').get(id) as any;
+  return row ? JSON.parse(row.data) : undefined;
+};
+export const upsertStory = (s: Story) => {
+  const existing = db.prepare('SELECT position FROM stories WHERE id = ?').get(s.id) as any;
+  const position = existing
+    ? existing.position
+    : ((db.prepare('SELECT COALESCE(MAX(position), 0) AS m FROM stories').get() as any).m + 1);
+  // ON CONFLICT (not REPLACE): REPLACE deletes the row and would cascade-delete its chapters/comments.
+  db.prepare(
+    'INSERT INTO stories (id, position, data) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data',
+  ).run(
+    s.id,
+    position,
+    JSON.stringify(s),
+  );
+};
+export const deleteStory = (id: string) => {
+  db.prepare('DELETE FROM stories WHERE id = ?').run(id);
+};
+
+// ---- Chapters ----
+export const listChapters = (storyId: string): Chapter[] =>
+  parse<Chapter>(
+    db.prepare('SELECT data FROM chapters WHERE story_id = ? ORDER BY number').all(storyId) as any,
+  );
+export const upsertChapter = (c: Chapter) => {
+  db.prepare('INSERT OR REPLACE INTO chapters (story_id, number, data) VALUES (?, ?, ?)').run(
+    c.storyId,
+    c.chapterNumber,
+    JSON.stringify(c),
+  );
+  const count = (db.prepare('SELECT COUNT(*) AS n FROM chapters WHERE story_id = ?').get(c.storyId) as any).n;
+  const story = getStory(c.storyId);
+  if (story) {
+    upsertStory({ ...story, totalChapters: count, lastUpdated: new Date().toISOString() });
+  }
+};
+export const deleteChapter = (storyId: string, number: number) => {
+  db.prepare('DELETE FROM chapters WHERE story_id = ? AND number = ?').run(storyId, number);
+  const story = getStory(storyId);
+  if (story) {
+    const count = (db.prepare('SELECT COUNT(*) AS n FROM chapters WHERE story_id = ?').get(storyId) as any).n;
+    upsertStory({ ...story, totalChapters: count });
+  }
+};
+export const chapterCount = (storyId: string): number =>
+  (db.prepare('SELECT COUNT(*) AS n FROM chapters WHERE story_id = ?').get(storyId) as any).n;
+export const bumpChapterViews = (storyId: string, number: number) => {
+  db.prepare(
+    `UPDATE chapters SET data = json_set(data, '$.views', COALESCE(json_extract(data, '$.views'), 0) + 1)
+     WHERE story_id = ? AND number = ?`,
+  ).run(storyId, number);
+  db.prepare(
+    `UPDATE stories SET data = json_set(data, '$.views', COALESCE(json_extract(data, '$.views'), 0) + 1) WHERE id = ?`,
+  ).run(storyId);
+};
+
+// ---- Ads ----
+export const listAds = (): AdSlot[] =>
+  parse<AdSlot>(db.prepare('SELECT data FROM ads ORDER BY position DESC').all() as any);
+export const upsertAd = (a: AdSlot) => {
+  const existing = db.prepare('SELECT position FROM ads WHERE id = ?').get(a.id) as any;
+  const position = existing
+    ? existing.position
+    : ((db.prepare('SELECT COALESCE(MAX(position), 0) AS m FROM ads').get() as any).m + 1);
+  db.prepare('INSERT OR REPLACE INTO ads (id, position, data) VALUES (?, ?, ?)').run(a.id, position, JSON.stringify(a));
+};
+export const deleteAd = (id: string) => {
+  db.prepare('DELETE FROM ads WHERE id = ?').run(id);
+};
+export const bumpAdClick = (id: string) => {
+  db.prepare(
+    `UPDATE ads SET data = json_set(data, '$.clicks', COALESCE(json_extract(data, '$.clicks'), 0) + 1) WHERE id = ?`,
+  ).run(id);
+};
+
+// ---- Notifications ----
+export const listNotifications = (): PushNotification[] =>
+  parse<PushNotification>(
+    db.prepare('SELECT data FROM notifications ORDER BY created_at DESC LIMIT 30').all() as any,
+  );
+export const addNotification = (n: PushNotification) => {
+  db.prepare('INSERT OR REPLACE INTO notifications (id, created_at, data) VALUES (?, ?, ?)').run(
+    n.id,
+    Date.now(),
+    JSON.stringify(n),
+  );
+};
+
+// ---- Comments ----
+export const listComments = (storyId: string): StoryComment[] =>
+  parse<StoryComment>(
+    db.prepare('SELECT data FROM comments WHERE story_id = ? ORDER BY created_at DESC LIMIT 100').all(storyId) as any,
+  );
+export const addComment = (c: StoryComment) => {
+  db.prepare('INSERT INTO comments (id, story_id, created_at, data) VALUES (?, ?, ?, ?)').run(
+    c.id,
+    c.storyId,
+    Date.now(),
+    JSON.stringify(c),
+  );
+};
+
+// ---- Crawl config ----
+export interface CrawlConfig {
+  tocUrl: string;
+  linkSelector: string;
+  contentSelector: string;
+  titleSelector?: string;
+}
+export const getCrawlConfig = (storyId: string): CrawlConfig | undefined => {
+  const row = db.prepare('SELECT data FROM crawl_config WHERE story_id = ?').get(storyId) as any;
+  return row ? JSON.parse(row.data) : undefined;
+};
+export const saveCrawlConfig = (storyId: string, cfg: CrawlConfig) => {
+  db.prepare('INSERT OR REPLACE INTO crawl_config (story_id, data) VALUES (?, ?)').run(storyId, JSON.stringify(cfg));
+};
+export const listCrawlConfigs = (): Array<{ storyId: string; cfg: CrawlConfig }> =>
+  (db.prepare('SELECT story_id, data FROM crawl_config').all() as any[]).map((r) => ({
+    storyId: r.story_id,
+    cfg: JSON.parse(r.data),
+  }));
+
+// ---- Seed demo content on first run (disable with SEED_DEMO=false) ----
+if (process.env.SEED_DEMO !== 'false' && listStories().length === 0 && listAds().length === 0) {
+  [...INITIAL_STORIES].reverse().forEach(upsertStory);
+  Object.values(INITIAL_CHAPTERS).flat().forEach((c) => upsertChapter(c));
+  [...INITIAL_ADS].reverse().forEach(upsertAd);
+}

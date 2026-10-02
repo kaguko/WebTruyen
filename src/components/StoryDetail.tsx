@@ -19,16 +19,16 @@ import {
 } from 'lucide-react';
 import { Story, Chapter, StoryComment, AdSlot } from '../types';
 import {
-  getStoredChapters,
+  loadChapters,
   getReadingHistory,
   isBookmarked,
   toggleBookmark,
   isStoryOffline,
   saveStoryOffline,
   removeOfflineStory,
-  getStoryComments,
-  addStoryComment,
 } from '../services/storage';
+import { api } from '../services/api';
+import { formatTime } from '../services/format';
 import { Language, translations } from '../services/i18n';
 import { AdBanner } from './AdBanner';
 
@@ -67,11 +67,16 @@ export const StoryDetail: React.FC<StoryDetailProps> = ({
   const historyItem = history.find((h) => h.storyId === story.id);
 
   useEffect(() => {
-    const chList = getStoredChapters(story.id);
-    setChapters(chList);
+    let cancelled = false;
+    void loadChapters(story.id).then((list) => {
+      if (!cancelled) setChapters(list);
+    });
     setBookmarked(isBookmarked(story.id));
     setIsOffline(isStoryOffline(story.id));
-    setComments(getStoryComments(story.id));
+    api.comments(story.id).then((c) => !cancelled && setComments(c)).catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, [story.id]);
 
   const handleToggleBookmark = () => {
@@ -101,24 +106,16 @@ export const StoryDetail: React.FC<StoryDetailProps> = ({
     setDownloadProgress(0);
   };
 
-  const handlePostComment = (e: React.FormEvent) => {
+  const handlePostComment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCommentText.trim()) return;
-
-    const newComment: StoryComment = {
-      id: `comment-${Date.now()}`,
-      storyId: story.id,
-      authorName: 'Độc giả vô danh',
-      authorAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
-      content: newCommentText.trim(),
-      rating: newCommentRating,
-      createdAt: 'Vừa xong',
-      likes: 1,
-    };
-
-    addStoryComment(newComment);
-    setComments([newComment, ...comments]);
-    setNewCommentText('');
+    try {
+      const created = await api.addComment(story.id, { content: newCommentText.trim(), rating: newCommentRating });
+      setComments([created, ...comments]);
+      setNewCommentText('');
+    } catch (err: any) {
+      alert(err?.message || 'Không gửi được bình luận');
+    }
   };
 
   const handleShare = () => {
@@ -452,7 +449,7 @@ export const StoryDetail: React.FC<StoryDetailProps> = ({
                       />
                       <div>
                         <div className="font-bold text-xs text-stone-900">{c.authorName}</div>
-                        <div className="text-[10px] text-stone-400">{c.createdAt}</div>
+                        <div className="text-[10px] text-stone-400">{formatTime(c.createdAt)}</div>
                       </div>
                     </div>
 

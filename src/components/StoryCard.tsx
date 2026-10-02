@@ -1,3 +1,4 @@
+import { formatTime } from '../services/format';
 import React from 'react';
 import { Star, Eye, BookOpen, Sparkles } from 'lucide-react';
 import { Story } from '../types';
@@ -33,7 +34,7 @@ export const StoryCard: React.FC<StoryCardProps> = ({ story, onClick, variant = 
           <div className="text-xs font-semibold text-emerald-700">
             Chương {story.totalChapters}
           </div>
-          <div className="text-[10px] text-stone-400">{story.lastUpdated}</div>
+          <div className="text-[10px] text-stone-400">{formatTime(story.lastUpdated)}</div>
         </div>
       </div>
     );
@@ -94,7 +95,7 @@ export const StoryCard: React.FC<StoryCardProps> = ({ story, onClick, variant = 
             {story.genres[0]}
           </span>
           <span className="text-emerald-600 font-medium text-[10px]">
-            {story.lastUpdated}
+            {formatTime(story.lastUpdated)}
           </span>
         </div>
       </div>

@@ -19,7 +19,6 @@ import {
   clearReadingHistory,
   deletePersonalNote,
   removeOfflineStory,
-  getStoredChapters,
 } from '../services/storage';
 import { Language, translations } from '../services/i18n';
 
