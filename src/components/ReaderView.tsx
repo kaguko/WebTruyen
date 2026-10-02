@@ -50,6 +50,7 @@ import { AdBanner } from './AdBanner';
 interface ReaderViewProps {
   story: Story;
   initialChapterNumber: number;
+  onChapterChange?: (n: number) => void;
   readerSettings: ReaderSettings;
   onUpdateSettings: (newSettings: ReaderSettings) => void;
   currentLang: Language;
@@ -60,6 +61,7 @@ interface ReaderViewProps {
 export const ReaderView: React.FC<ReaderViewProps> = ({
   story,
   initialChapterNumber,
+  onChapterChange,
   readerSettings,
   onUpdateSettings,
   currentLang,
@@ -68,6 +70,14 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
 }) => {
   const t = translations[currentLang];
   const [currentChapterNum, setCurrentChapterNum] = useState(initialChapterNumber);
+  // Keep in sync with the URL (back/forward) and report in-reader navigation upward
+  useEffect(() => {
+    setCurrentChapterNum(initialChapterNumber);
+  }, [initialChapterNumber]);
+  useEffect(() => {
+    onChapterChange?.(currentChapterNum);
+  }, [currentChapterNum]);
+
   const [totalChapters, setTotalChapters] = useState(story.totalChapters);
   const [loadError, setLoadError] = useState(false);
   const [retryKey, setRetryKey] = useState(0);

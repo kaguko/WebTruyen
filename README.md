@@ -24,4 +24,14 @@ Khi chạy thật: đặt `ADMIN_PASSWORD`, `SESSION_SECRET`, `SEED_DEMO=false`,
 ## Việc cần làm cùng khách
 - Thay truyện mẫu, ảnh, link Shopee affiliate, tên thương hiệu/footer.
 - Trang điều khoản/chính sách; chỉ crawl nội dung có quyền sử dụng.
-- Chưa có: tài khoản độc giả (đồng bộ đa thiết bị), phân trang danh sách chương (API trả toàn bộ chương của truyện), sitemap/SEO theo từng truyện (hiện là SPA không có URL riêng cho truyện).
+- Chưa có: tài khoản độc giả (đồng bộ đa thiết bị).
+
+## URL & SEO
+- URL: `/`, `/the-loai/<the-loai>`, `/truyen/<slug>`, `/truyen/<slug>/chuong-<n>`.
+- Ở production, server chèn sẵn `<title>`, meta description, canonical, Open Graph, JSON-LD (Book/BreadcrumbList) và nội dung dự phòng (tiêu đề, mô tả, nội dung chương) vào HTML để Google/mạng xã hội đọc được; trang không tồn tại trả HTTP 404.
+- `/sitemap.xml` (tối đa 50.000 URL) và `/robots.txt` tự sinh. **Đặt `SITE_URL=https://ten-mien-that.com`** để canonical/sitemap đúng tên miền.
+- Sau khi lên tên miền thật: gửi sitemap vào Google Search Console.
+- Lưu ý: chế độ `npm run dev` không chèn SEO (chỉ có ở `npm start`). Slug truyện được giữ cố định kể cả khi đổi tên.
+
+## API chương (phân trang)
+`GET /api/stories/:id/chapters?offset=0&limit=50&q=` (danh sách, không có nội dung) · `GET /api/stories/:id/chapters/:n` (một chương) · `GET /api/stories/:id/download` (toàn bộ, dùng cho đọc offline).

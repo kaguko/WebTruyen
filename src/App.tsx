@@ -27,6 +27,7 @@ import {
   getReaderSettings,
   saveReaderSettings,
 } from './services/storage';
+import { parseRoute, storyPath, chapterPath, genrePath } from './routes';
 import { Language, translations } from './services/i18n';
 import { Navbar } from './components/Navbar';
 import { HotCarousel } from './components/HotCarousel';
@@ -111,6 +112,63 @@ export default function App() {
       window.removeEventListener('offline', handleOffline);
     };
   }, []);
+
+  // ---- URL routing (History API) ----
+  const [routeReady, setRouteReady] = useState(false);
+
+  const applyRoute = (list: Story[]) => {
+    const route = parseRoute(window.location.pathname);
+    const story = 'slug' in route ? list.find((s) => s.slug === route.slug) : undefined;
+    if (route.type === 'chapter' && story) {
+      setSelectedStory(story);
+      setActiveChapterNumber(route.n);
+      setCurrentView('reader');
+    } else if (route.type === 'story' && story) {
+      setSelectedStory(story);
+      setCurrentView('detail');
+    } else {
+      setCurrentView('home');
+      setSelectedGenre(route.type === 'genre' ? (route.genre as Genre) : null);
+      if (route.type !== 'home' && route.type !== 'genre') window.history.replaceState(null, '', '/');
+    }
+    setRankingFilter(null);
+  };
+
+  // Resolve the initial URL once stories have loaded; handle back/forward afterwards.
+  useEffect(() => {
+    if (routeReady || stories.length === 0) return;
+    applyRoute(stories);
+    setRouteReady(true);
+  }, [stories, routeReady]);
+
+  useEffect(() => {
+    const onPop = () => applyRoute(stories);
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, [stories]);
+
+  const desiredPath =
+    currentView === 'reader' && selectedStory
+      ? chapterPath(selectedStory.slug, activeChapterNumber)
+      : currentView === 'detail' && selectedStory
+        ? storyPath(selectedStory.slug)
+        : selectedGenre
+          ? genrePath(selectedGenre)
+          : '/';
+
+  useEffect(() => {
+    if (!routeReady) return;
+    if (window.location.pathname !== desiredPath) window.history.pushState(null, '', desiredPath);
+    const base = 'TruyenFull Live';
+    document.title =
+      currentView === 'reader' && selectedStory
+        ? `${selectedStory.title} - Chương ${activeChapterNumber} | ${base}`
+        : currentView === 'detail' && selectedStory
+          ? `${selectedStory.title} | ${base}`
+          : selectedGenre
+            ? `Truyện ${selectedGenre} | ${base}`
+            : `${base} - Đọc Truyện Online Tối Ưu, Cập Nhật Nhanh`;
+  }, [desiredPath, routeReady]);
 
   const handleUpdateReaderSettings = (newSettings: ReaderSettings) => {
     setReaderSettings(newSettings);
@@ -232,6 +290,7 @@ export default function App() {
         <ReaderView
           story={selectedStory}
           initialChapterNumber={activeChapterNumber}
+          onChapterChange={setActiveChapterNumber}
           readerSettings={readerSettings}
           onUpdateSettings={handleUpdateReaderSettings}
           currentLang={currentLang}

@@ -6,7 +6,9 @@ import fs from 'node:fs';
 import * as db from './db';
 import { checkPassword, issueSession, clearSession, requireAdmin, isAdmin } from './auth';
 import { crawlStory } from './crawler';
+import { renderPage, robots, sitemap } from './seo';
 import type { Story, Chapter, AdSlot } from '../src/types';
+import { slugify, parseRoute, GENRES, genrePath, storyPath, chapterPath } from '../src/routes';
 
 const app = express();
 app.disable('x-powered-by');
@@ -25,15 +27,13 @@ const safeUrl = (v: unknown): string => {
   return /^https?:\/\//i.test(s) ? s : '';
 };
 const uid = (p: string) => `${p}-${Date.now().toString(36)}${crypto.randomBytes(3).toString('hex')}`;
-const slugify = (t: string) =>
-  t
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/đ/g, 'd')
-    .replace(/Đ/g, 'D')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '');
+const uniqueSlug = (title: string, selfId?: string): string => {
+  const base = slugify(title) || 'truyen';
+  const taken = new Set(db.listStories().filter((s) => s.id !== selfId).map((s) => s.slug));
+  let slug = base;
+  for (let i = 2; taken.has(slug); i++) slug = `${base}-${i}`;
+  return slug;
+};
 
 // ---------- Public API ----------
 const api = express.Router();
@@ -113,7 +113,7 @@ admin.post('/stories', (req, res) => {
   const story: Story = {
     id: uid('story'),
     title,
-    slug: slugify(title),
+    slug: uniqueSlug(title),
     author: str(req.body?.author, 100) || 'Vô Danh',
     cover:
       safeUrl(req.body?.cover) ||
@@ -249,8 +249,10 @@ app.use('/api', api);
 // ---------- Static frontend (production) ----------
 const dist = path.resolve(process.cwd(), 'dist');
 if (fs.existsSync(dist)) {
+  app.get('/robots.txt', robots);
+  app.get('/sitemap.xml', sitemap);
   app.use(express.static(dist, { index: false, maxAge: '1h' }));
-  app.get(/^\/(?!api\/).*/, (_req, res) => res.sendFile(path.join(dist, 'index.html')));
+  app.get(/^\/(?!api\/).*/, (req, res) => renderPage(req, res, dist));
 }
 
 // ---------- Optional scheduled crawling ----------
