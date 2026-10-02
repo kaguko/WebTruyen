@@ -45,12 +45,18 @@ function extractParagraphs($: cheerio.CheerioAPI, selector?: string): string[] {
   const el = selector ? $(selector).first() : autoContentElement($);
   if (!el || !el.length) return [];
   el.find('script, style, iframe, ins, .ads, [class*="ads"], [id*="ads"]').remove();
+  // Chapter text may be bare text split by <br>, <p> tags, or both (with unrelated <p> blocks mixed in): read it all in order.
   el.find('br').replaceWith('\n');
-  const blocks = el.find('p').length ? el.find('p').map((_, p) => $(p).text()).get() : [el.text()];
-  return blocks
-    .flatMap((b) => b.split(/\n+/))
+  el.find('p, div, li').each((_, n) => {
+    $(n).append('\n');
+  });
+  return el
+    .text()
+    .split(/\n+/)
     .map((t) => t.replace(/\s+/g, ' ').trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    // Drop short SEO keyword lines sites append to every chapter (e.g. "truyen full, truyenfull, ...").
+    .filter((t) => !(t.length < 150 && /truyen\s?full/i.test(t)));
 }
 
 /** Chapter links of a TOC page. With no selector, picks the block whose links mostly look like chapters. */
