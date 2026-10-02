@@ -9,7 +9,7 @@ import {
   issueUserSession, clearUserSession, getUserId, requireUser,
 } from './auth';
 import { hashPassword, verifyPassword } from './password';
-import { crawlStory, startCrawlJob, getCrawlJob, stopCrawlJob, MAX_CRAWL_LIMIT } from './crawler';
+import { crawlStory, previewCrawl, startCrawlJob, getCrawlJob, stopCrawlJob, MAX_CRAWL_LIMIT } from './crawler';
 import { renderPage, robots, sitemap } from './seo';
 import type { Story, Chapter, AdSlot } from '../src/types';
 import { slugify, parseRoute, GENRES, genrePath, storyPath, chapterPath } from '../src/routes';
@@ -303,8 +303,8 @@ admin.post('/stories/:id/crawl', (req, res) => {
       req.params.id,
       {
         tocUrl,
-        linkSelector: str(b.linkSelector, 300) || 'a',
-        contentSelector: str(b.contentSelector, 300) || '#chapter-content',
+        linkSelector: str(b.linkSelector, 300) || undefined,
+        contentSelector: str(b.contentSelector, 300) || undefined,
         titleSelector: str(b.titleSelector, 300) || undefined,
       },
       Math.min(MAX_CRAWL_LIMIT, Math.max(1, Number(b.limit) || 100)),
@@ -312,6 +312,22 @@ admin.post('/stories/:id/crawl', (req, res) => {
     res.status(202).json({ started: true });
   } catch (e: any) {
     res.status(409).json({ error: e?.message || 'Crawl lỗi' });
+  }
+});
+admin.post('/crawl-preview', async (req, res) => {
+  const b = req.body || {};
+  const tocUrl = safeUrl(b.tocUrl);
+  if (!tocUrl) return res.status(400).json({ error: 'Link không hợp lệ' });
+  try {
+    res.json(
+      await previewCrawl({
+        tocUrl,
+        linkSelector: str(b.linkSelector, 300) || undefined,
+        contentSelector: str(b.contentSelector, 300) || undefined,
+      }),
+    );
+  } catch (e: any) {
+    res.status(422).json({ error: e?.message || 'Không thử được' });
   }
 });
 admin.get('/stories/:id/crawl-status', (req, res) => {

@@ -302,8 +302,8 @@ export const getStats = () => {
 // ---- Crawl config ----
 export interface CrawlConfig {
   tocUrl: string;
-  linkSelector: string;
-  contentSelector: string;
+  linkSelector?: string; // empty = auto-detect
+  contentSelector?: string; // empty = auto-detect
   titleSelector?: string;
 }
 export const getCrawlConfig = (storyId: string): CrawlConfig | undefined => {

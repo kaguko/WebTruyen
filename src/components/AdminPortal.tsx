@@ -56,11 +56,15 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [crawlLimit, setCrawlLimit] = useState(100);
   const [crawlProgress, setCrawlProgress] = useState<{ added: number; total: number }>({ added: 0, total: 0 });
   const [stopping, setStopping] = useState(false);
-  const [linkSelector, setLinkSelector] = useState('.list-chapter a');
-  const [contentSelector, setContentSelector] = useState('#chapter-c');
+  const [linkSelector, setLinkSelector] = useState('');
+  const [contentSelector, setContentSelector] = useState('');
   const [titleSelector, setTitleSelector] = useState('');
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [preview, setPreview] = useState<{ chapterTotal: number; firstTitle: string; sample: string[] } | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [previewErr, setPreviewErr] = useState('');
   const [crawlerLogs, setCrawlerLogs] = useState<string[]>([
-    'Nhập link mục lục và CSS selector của website nguồn, rồi bấm "Kích Hoạt Cào Ngay".',
+    'Dán link trang truyện nguồn, bấm "Thử trước" để kiểm tra, rồi bấm "Kích Hoạt Cào Ngay".',
   ]);
 
   // Manual chapter form
@@ -106,9 +110,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       .then((cfg) => {
         if (!cfg) return;
         setTargetUrl(cfg.tocUrl);
-        setLinkSelector(cfg.linkSelector);
-        setContentSelector(cfg.contentSelector);
+        setLinkSelector(cfg.linkSelector || '');
+        setContentSelector(cfg.contentSelector || '');
         setTitleSelector(cfg.titleSelector || '');
+        if (cfg.linkSelector || cfg.contentSelector || cfg.titleSelector) setShowAdvanced(true);
       })
       .catch(() => {});
     // A crawl keeps running on the server after the panel is closed: pick it up again.
@@ -185,6 +190,23 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     } catch (e) {
       setCrawlerLogs([`Lỗi: ${(e as Error).message}`]);
       setIsCrawling(false);
+    }
+  };
+
+  const handlePreview = async () => {
+    if (!targetUrl.trim()) {
+      setPreviewErr('Hãy dán link truyện nguồn trước.');
+      return;
+    }
+    setPreviewing(true);
+    setPreview(null);
+    setPreviewErr('');
+    try {
+      setPreview(await api.admin.crawlPreview({ tocUrl: targetUrl, linkSelector, contentSelector }));
+    } catch (e) {
+      setPreviewErr((e as Error).message);
+    } finally {
+      setPreviewing(false);
     }
   };
 
@@ -469,25 +491,56 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
-                  {[
-                    ['Selector link chương (trong trang mục lục)', linkSelector, setLinkSelector],
-                    ['Selector nội dung chương', contentSelector, setContentSelector],
-                    ['Selector tiêu đề chương (tùy chọn)', titleSelector, setTitleSelector],
-                  ].map(([label, value, setter]) => (
-                    <div key={label as string}>
-                      <label className="text-xs font-semibold text-stone-600 block mb-1">{label as string}</label>
-                      <input
-                        type="text"
-                        value={value as string}
-                        onChange={(e) => (setter as (v: string) => void)(e.target.value)}
-                        className="w-full p-2.5 text-xs sm:text-sm bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:border-emerald-500 font-mono"
-                      />
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    onClick={handlePreview}
+                    disabled={previewing || isCrawling}
+                    className="px-4 py-2 rounded-xl text-xs font-bold border border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-60 cursor-pointer"
+                  >
+                    {previewing ? 'Đang kiểm tra...' : 'Thử trước (không lưu gì)'}
+                  </button>
+                  {previewErr && <p className="mt-2 text-xs text-red-600">{previewErr}</p>}
+                  {preview && (
+                    <div className="mt-2 text-xs bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-stone-700">
+                      <p className="font-semibold text-emerald-700">
+                        ✓ Nhận ra {preview.chapterTotal} chương. Chương đầu: {preview.firstTitle}
+                      </p>
+                      {preview.sample.map((t, i) => (
+                        <p key={i} className="mt-1 text-stone-500">{t}</p>
+                      ))}
                     </div>
-                  ))}
+                  )}
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowAdvanced((v) => !v)}
+                  className="mt-4 text-xs font-semibold text-stone-500 underline cursor-pointer"
+                >
+                  {showAdvanced ? 'Ẩn Nâng cao' : 'Nâng cao (chỉ dùng khi "Thử trước" báo lỗi)'}
+                </button>
+                {showAdvanced && (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-3">
+                    {[
+                      ['Selector link chương (để trống = tự nhận)', linkSelector, setLinkSelector],
+                      ['Selector nội dung chương (để trống = tự nhận)', contentSelector, setContentSelector],
+                      ['Selector tiêu đề chương (tùy chọn)', titleSelector, setTitleSelector],
+                    ].map(([label, value, setter]) => (
+                      <div key={label as string}>
+                        <label className="text-xs font-semibold text-stone-600 block mb-1">{label as string}</label>
+                        <input
+                          type="text"
+                          value={value as string}
+                          onChange={(e) => (setter as (v: string) => void)(e.target.value)}
+                          className="w-full p-2.5 text-xs sm:text-sm bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:border-emerald-500 font-mono"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <p className="mt-3 text-[11px] text-stone-500">
-                  Chương thứ N = link thứ N trong mục lục; chỉ tải các chương chưa có (chọn số chương mỗi lần, tối đa 1000). Cào chạy nền trên server, có thể đóng bảng này và quay lại xem tiến độ. Chỉ cào nội dung bạn có quyền sử dụng.
+                  Chỉ cần dán link trang truyện, hệ thống tự tìm danh sách chương và nội dung. Chỉ tải các chương chưa có (chọn số chương mỗi lần, tối đa 1000). Cào chạy nền trên server, có thể đóng bảng này và quay lại xem tiến độ. Chỉ cào nội dung bạn có quyền sử dụng.
                 </p>
 
                 <div className="mt-4 pt-4 border-t border-stone-100 flex flex-wrap items-center justify-end gap-3">
