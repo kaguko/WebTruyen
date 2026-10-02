@@ -21,6 +21,7 @@ import {
   DollarSign,
   Download,
   Upload,
+  LogOut,
 } from 'lucide-react';
 import { Story, AdSlot, AdPlacement, Genre, PushNotification } from '../types';
 import {
@@ -269,6 +270,20 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               </p>
             </div>
           </div>
+
+          <button
+            onClick={async () => {
+              try {
+                await api.admin.logout();
+              } finally {
+                onClose();
+              }
+            }}
+            className="ml-auto mr-2 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-stone-100 hover:bg-stone-200 text-stone-700 cursor-pointer"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Đăng xuất</span>
+          </button>
 
           <button
             onClick={onClose}

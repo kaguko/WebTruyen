@@ -435,16 +435,6 @@ export const Navbar: React.FC<NavbarProps> = ({
               <User className="w-3.5 h-3.5 text-stone-500" />
               <span className="hidden sm:inline max-w-24 truncate">{accountName || 'Đăng nhập'}</span>
             </button>
-
-            {/* Admin Portal Button */}
-            <button
-              onClick={onOpenAdmin}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-800 hover:bg-emerald-900 text-white shadow-xs transition-colors cursor-pointer"
-              title="Trang quản trị & Cấu hình Crawler / Ads Shopee"
-            >
-              <Shield className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">{t.admin}</span>
-            </button>
           </div>
         </div>
       </div>
