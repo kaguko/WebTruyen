@@ -60,7 +60,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [contentSelector, setContentSelector] = useState('');
   const [titleSelector, setTitleSelector] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [preview, setPreview] = useState<{ chapterTotal: number; firstTitle: string; sample: string[] } | null>(null);
+  const [preview, setPreview] = useState<{ chapterTotal: number; pages: number; firstTitle: string; sample: string[] } | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const [previewErr, setPreviewErr] = useState('');
   const [crawlerLogs, setCrawlerLogs] = useState<string[]>([
@@ -504,7 +504,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   {preview && (
                     <div className="mt-2 text-xs bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-stone-700">
                       <p className="font-semibold text-emerald-700">
-                        ✓ Nhận ra {preview.chapterTotal} chương. Chương đầu: {preview.firstTitle}
+                        ✓ Nhận ra {preview.chapterTotal} chương ở trang 1{preview.pages > 1 ? ` (mục lục có ${preview.pages} trang, sẽ tự đọc hết)` : ''}. Chương đầu: {preview.firstTitle}
                       </p>
                       {preview.sample.map((t, i) => (
                         <p key={i} className="mt-1 text-stone-500">{t}</p>
