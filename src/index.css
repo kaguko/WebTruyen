@@ -1,0 +1,76 @@
+@import "tailwindcss";
+
+@layer utilities {
+  .font-vietnam {
+    font-family: 'Be Vietnam Pro', -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+  .font-merriweather {
+    font-family: 'Merriweather', Georgia, serif;
+  }
+  .font-lora {
+    font-family: 'Lora', Georgia, serif;
+  }
+  .font-literata {
+    font-family: 'Literata', Georgia, serif;
+  }
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(150, 150, 150, 0.3);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(150, 150, 150, 0.5);
+}
+
+/* Reader theme backgrounds */
+.theme-light {
+  background-color: #fdfdfd;
+  color: #1a1a1a;
+}
+.theme-sepia {
+  background-color: #f6edd9;
+  color: #382c1e;
+}
+.theme-dark {
+  background-color: #1e2430;
+  color: #e2e8f0;
+}
+.theme-oled {
+  background-color: #0b0c10;
+  color: #c5c6c7;
+}
+
+/* Text highlight colors */
+.hl-yellow {
+  background-color: #fef08a;
+  color: #713f12;
+  border-radius: 2px;
+  padding: 0 2px;
+}
+.hl-green {
+  background-color: #bbf7d0;
+  color: #14532d;
+  border-radius: 2px;
+  padding: 0 2px;
+}
+.hl-blue {
+  background-color: #bae6fd;
+  color: #0c4a6e;
+  border-radius: 2px;
+  padding: 0 2px;
+}
+.hl-pink {
+  background-color: #fbcfe8;
+  color: #831843;
+  border-radius: 2px;
+  padding: 0 2px;
+}

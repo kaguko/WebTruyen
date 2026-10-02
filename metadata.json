@@ -1,0 +1,6 @@
+{
+  "name": "TruyenFull Live - Đọc Truyện Online",
+  "description": "Nền tảng đọc truyện chữ online mượt mà, crawler tự động cập nhật chương mới, hỗ trợ đọc offline, ghi chú, tùy biến ban đêm và quản trị viên linh hoạt.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
