@@ -90,6 +90,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [pushTitle, setPushTitle] = useState('');
   const [pushMessage, setPushMessage] = useState('');
   const [pushSentSuccess, setPushSentSuccess] = useState(false);
+  const [pushError, setPushError] = useState('');
+  const [pushSending, setPushSending] = useState(false);
 
   // Sync token state
   const [syncToken, setSyncToken] = useState('');
@@ -309,11 +311,20 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   // Send push notification
   const handleSendPush = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!pushTitle.trim() || !pushMessage.trim()) return;
+    if (pushSending) return;
+    if (!pushTitle.trim() || !pushMessage.trim()) {
+      setPushError(!pushTitle.trim() ? 'Hãy nhập tiêu đề thông báo.' : 'Hãy nhập nội dung thông báo (ô thứ hai).');
+      return;
+    }
+    setPushError('');
+    setPushSending(true);
     try {
       await api.admin.push(pushTitle.trim(), pushMessage.trim());
     } catch (err) {
-      return fail(err);
+      setPushError((err as Error).message || 'Gửi thất bại');
+      return;
+    } finally {
+      setPushSending(false);
     }
     setPushSentSuccess(true);
     setPushTitle('');
@@ -890,6 +901,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 </div>
               )}
 
+              {pushError && (
+                <div className="p-3 bg-red-50 text-red-700 border border-red-200 rounded-xl text-xs">{pushError}</div>
+              )}
+
               <form onSubmit={handleSendPush} className="space-y-3">
                 <div>
                   <label className="text-xs font-semibold text-stone-700 block mb-1">
@@ -919,9 +934,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
                 <button
                   type="submit"
-                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm rounded-xl transition-colors cursor-pointer shadow-sm"
+                  disabled={pushSending}
+                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-bold text-xs sm:text-sm rounded-xl transition-colors cursor-pointer shadow-sm"
                 >
-                  Phát Thông Báo Ngay
+                  {pushSending ? 'Đang gửi...' : 'Phát Thông Báo Ngay'}
                 </button>
               </form>
             </div>
