@@ -27,6 +27,13 @@ export interface Chapter {
   views: number;
 }
 
+export type ChapterMeta = Omit<Chapter, 'content'>;
+
+export interface ChapterPage {
+  items: ChapterMeta[];
+  total: number;
+}
+
 export interface Story {
   id: string;
   title: string;

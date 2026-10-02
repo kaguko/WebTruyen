@@ -17,18 +17,18 @@ import {
   ShoppingBag,
   ExternalLink,
 } from 'lucide-react';
-import { Story, Chapter, StoryComment, AdSlot } from '../types';
+import { Story, ChapterMeta, StoryComment, AdSlot } from '../types';
 import {
-  getStoredChapters,
+  loadChapterPage,
   getReadingHistory,
   isBookmarked,
   toggleBookmark,
   isStoryOffline,
   saveStoryOffline,
   removeOfflineStory,
-  getStoryComments,
-  addStoryComment,
 } from '../services/storage';
+import { api } from '../services/api';
+import { formatTime } from '../services/format';
 import { Language, translations } from '../services/i18n';
 import { AdBanner } from './AdBanner';
 
@@ -50,7 +50,9 @@ export const StoryDetail: React.FC<StoryDetailProps> = ({
   onSelectGenre,
 }) => {
   const t = translations[currentLang];
-  const [chapters, setChapters] = useState<Chapter[]>([]);
+  const [chapters, setChapters] = useState<ChapterMeta[]>([]);
+  const [chapterTotal, setChapterTotal] = useState(story.totalChapters);
+  const [chapterLoading, setChapterLoading] = useState(false);
   const [bookmarked, setBookmarked] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -67,12 +69,40 @@ export const StoryDetail: React.FC<StoryDetailProps> = ({
   const historyItem = history.find((h) => h.storyId === story.id);
 
   useEffect(() => {
-    const chList = getStoredChapters(story.id);
-    setChapters(chList);
+    let cancelled = false;
     setBookmarked(isBookmarked(story.id));
     setIsOffline(isStoryOffline(story.id));
-    setComments(getStoryComments(story.id));
+    api.comments(story.id).then((c) => !cancelled && setComments(c)).catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, [story.id]);
+
+  // Chapter list: first page / search results (server-side, paginated)
+  useEffect(() => {
+    let cancelled = false;
+    setChapterLoading(true);
+    const timer = window.setTimeout(() => {
+      void loadChapterPage(story.id, 0, 60, chapterSearch.trim()).then((p) => {
+        if (cancelled) return;
+        setChapters(p.items);
+        setChapterTotal(p.total);
+        setChapterLoading(false);
+      });
+    }, chapterSearch ? 250 : 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [story.id, chapterSearch]);
+
+  const handleLoadMoreChapters = async () => {
+    setChapterLoading(true);
+    const p = await loadChapterPage(story.id, chapters.length, 60, chapterSearch.trim());
+    setChapters((prev) => [...prev, ...p.items]);
+    setChapterTotal(p.total);
+    setChapterLoading(false);
+  };
 
   const handleToggleBookmark = () => {
     const newState = toggleBookmark(story.id);
@@ -89,36 +119,30 @@ export const StoryDetail: React.FC<StoryDetailProps> = ({
     setDownloading(true);
     setDownloadProgress(20);
 
-    // Simulate downloading chapters in batches
-    await new Promise((r) => setTimeout(r, 400));
-    setDownloadProgress(60);
-    await new Promise((r) => setTimeout(r, 400));
-    setDownloadProgress(100);
-
-    saveStoryOffline(story, chapters);
-    setIsOffline(true);
-    setDownloading(false);
-    setDownloadProgress(0);
+    try {
+      setDownloadProgress(40);
+      const all = await api.download(story.id);
+      setDownloadProgress(100);
+      saveStoryOffline(story, all);
+      setIsOffline(true);
+    } catch {
+      alert('Không tải được truyện để đọc offline. Vui lòng kiểm tra kết nối mạng.');
+    } finally {
+      setDownloading(false);
+      setDownloadProgress(0);
+    }
   };
 
-  const handlePostComment = (e: React.FormEvent) => {
+  const handlePostComment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCommentText.trim()) return;
-
-    const newComment: StoryComment = {
-      id: `comment-${Date.now()}`,
-      storyId: story.id,
-      authorName: 'Độc giả vô danh',
-      authorAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
-      content: newCommentText.trim(),
-      rating: newCommentRating,
-      createdAt: 'Vừa xong',
-      likes: 1,
-    };
-
-    addStoryComment(newComment);
-    setComments([newComment, ...comments]);
-    setNewCommentText('');
+    try {
+      const created = await api.addComment(story.id, { content: newCommentText.trim(), rating: newCommentRating });
+      setComments([created, ...comments]);
+      setNewCommentText('');
+    } catch (err: any) {
+      alert(err?.message || 'Không gửi được bình luận');
+    }
   };
 
   const handleShare = () => {
@@ -127,13 +151,7 @@ export const StoryDetail: React.FC<StoryDetailProps> = ({
     setTimeout(() => setCopiedLink(false), 2000);
   };
 
-  const filteredChapters = chapterSearch.trim()
-    ? chapters.filter(
-        (c) =>
-          c.title.toLowerCase().includes(chapterSearch.toLowerCase()) ||
-          c.chapterNumber.toString().includes(chapterSearch.trim())
-      )
-    : chapters;
+  const filteredChapters = chapters;
 
   return (
     <div className="max-w-6xl mx-auto px-3 sm:px-6 py-6 animate-in fade-in duration-300">
@@ -319,7 +337,7 @@ export const StoryDetail: React.FC<StoryDetailProps> = ({
                 : 'text-stone-500 hover:text-stone-800'
             }`}
           >
-            {t.chaptersList} ({chapters.length})
+            {t.chaptersList} ({story.totalChapters})
             {activeTab === 'chapters' && (
               <span className="absolute bottom-[-13px] left-0 right-0 h-0.5 bg-emerald-600 rounded-full" />
             )}
@@ -388,6 +406,18 @@ export const StoryDetail: React.FC<StoryDetailProps> = ({
                 </button>
               ))}
             </div>
+            {chapters.length < chapterTotal && (
+              <button
+                onClick={handleLoadMoreChapters}
+                disabled={chapterLoading}
+                className="mt-3 w-full py-2.5 rounded-xl text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-60 cursor-pointer"
+              >
+                Xem thêm ({chapterTotal - chapters.length} chương)
+              </button>
+            )}
+            {!chapterLoading && chapters.length === 0 && (
+              <p className="text-xs text-stone-500 py-6 text-center">Không có chương nào.</p>
+            )}
           </div>
         )}
 
@@ -452,7 +482,7 @@ export const StoryDetail: React.FC<StoryDetailProps> = ({
                       />
                       <div>
                         <div className="font-bold text-xs text-stone-900">{c.authorName}</div>
-                        <div className="text-[10px] text-stone-400">{c.createdAt}</div>
+                        <div className="text-[10px] text-stone-400">{formatTime(c.createdAt)}</div>
                       </div>
                     </div>
 

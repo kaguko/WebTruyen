@@ -1,51 +1,45 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Lock, X } from 'lucide-react';
-
-const SESSION_KEY = 'tf_admin_unlocked';
-const ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD as string | undefined;
+import { api } from '../services/api';
 
 interface AdminGateProps {
   onClose: () => void;
   children: React.ReactNode;
 }
 
-/**
- * Client-side password gate for the admin portal.
- * NOTE: this only keeps casual visitors out. Real protection requires a backend.
- */
+/** Login gate for the admin portal. Authentication is verified by the server (HttpOnly session cookie). */
 export const AdminGate: React.FC<AdminGateProps> = ({ onClose, children }) => {
-  const [unlocked, setUnlocked] = useState(() => {
-    try {
-      return sessionStorage.getItem(SESSION_KEY) === '1';
-    } catch {
-      return false;
-    }
-  });
+  const [status, setStatus] = useState<'checking' | 'locked' | 'unlocked'>('checking');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
 
-  if (unlocked) return <>{children}</>;
+  useEffect(() => {
+    api.admin
+      .me()
+      .then((r) => setStatus(r.admin ? 'unlocked' : 'locked'))
+      .catch(() => setStatus('locked'));
+  }, []);
 
-  const submit = (e: React.FormEvent) => {
+  if (status === 'unlocked') return <>{children}</>;
+  if (status === 'checking') return null;
+
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (ADMIN_PASSWORD && password === ADMIN_PASSWORD) {
-      try {
-        sessionStorage.setItem(SESSION_KEY, '1');
-      } catch {
-        /* ignore */
-      }
-      setUnlocked(true);
-    } else {
-      setError('Mật khẩu không đúng.');
+    setBusy(true);
+    try {
+      await api.admin.login(password);
+      setStatus('unlocked');
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
     }
   };
 
   return (
     <div className="fixed inset-0 z-50 bg-stone-900/70 backdrop-blur-md flex items-center justify-center p-4">
-      <form
-        onSubmit={submit}
-        className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-6 space-y-4 text-stone-900"
-      >
+      <form onSubmit={submit} className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-6 space-y-4 text-stone-900">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 font-extrabold">
             <Lock className="w-5 h-5 text-emerald-700" />
@@ -55,11 +49,6 @@ export const AdminGate: React.FC<AdminGateProps> = ({ onClose, children }) => {
             <X className="w-5 h-5" />
           </button>
         </div>
-        {!ADMIN_PASSWORD && (
-          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-2.5">
-            Chưa cấu hình VITE_ADMIN_PASSWORD nên không thể đăng nhập. Xem README.
-          </p>
-        )}
         <input
           type="password"
           autoFocus
@@ -74,7 +63,8 @@ export const AdminGate: React.FC<AdminGateProps> = ({ onClose, children }) => {
         {error && <p className="text-xs text-red-600">{error}</p>}
         <button
           type="submit"
-          className="w-full py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-sm font-bold cursor-pointer"
+          disabled={busy}
+          className="w-full py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 disabled:opacity-60 text-white text-sm font-bold cursor-pointer"
         >
           Đăng nhập
         </button>

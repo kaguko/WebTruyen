@@ -3,6 +3,5 @@ dist
 dist-server
 data
 backups
+.git
 .env
-.env.*
-!.env.example

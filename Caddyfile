@@ -1,0 +1,5 @@
+# HTTPS (Let's Encrypt) tự động cho tên miền trong biến DOMAIN
+{$DOMAIN} {
+	encode gzip zstd
+	reverse_proxy app:3000
+}

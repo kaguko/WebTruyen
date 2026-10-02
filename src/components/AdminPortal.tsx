@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Shield,
   Bot,
@@ -21,47 +21,50 @@ import {
   DollarSign,
   Download,
   Upload,
+  LogOut,
+  LayoutDashboard,
 } from 'lucide-react';
 import { Story, AdSlot, AdPlacement, Genre, PushNotification } from '../types';
 import {
-  saveStoredStories,
-  saveStoredAds,
-  addNotification,
   exportAllUserData,
   importUserData,
 } from '../services/storage';
-import { runCrawlerForStory, CrawlProgressEvent } from '../services/crawlerSimulator';
+import { api } from '../services/api';
+import { DashboardTab } from './DashboardTab';
 
 interface AdminPortalProps {
   stories: Story[];
   ads: AdSlot[];
-  onUpdateStories: (stories: Story[]) => void;
-  onUpdateAds: (ads: AdSlot[]) => void;
+  onDataChanged: () => void;
   onClose: () => void;
 }
 
-type AdminTab = 'dashboard' | 'stories' | 'crawler' | 'ads_shopee' | 'push' | 'sync';
+export type AdminTab = 'dashboard' | 'stories' | 'crawler' | 'ads_shopee' | 'push' | 'sync';
 
 export const AdminPortal: React.FC<AdminPortalProps> = ({
   stories,
   ads,
-  onUpdateStories,
-  onUpdateAds,
+  onDataChanged,
   onClose,
 }) => {
-  const [activeTab, setActiveTab] = useState<AdminTab>('crawler');
+  const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
 
   // Crawler State
   const [selectedStoryId, setSelectedStoryId] = useState<string>(stories[0]?.id || '');
-  const [targetUrl, setTargetUrl] = useState<string>('https://truyenfull.vn/tien-nghich/');
+  const [targetUrl, setTargetUrl] = useState<string>('');
   const [isCrawling, setIsCrawling] = useState(false);
+  const [linkSelector, setLinkSelector] = useState('.list-chapter a');
+  const [contentSelector, setContentSelector] = useState('#chapter-c');
+  const [titleSelector, setTitleSelector] = useState('');
   const [crawlerLogs, setCrawlerLogs] = useState<string[]>([
-    '[INIT] TruyenCrawler v3.4 Engine khởi động sẵn sàng.',
-    '[READY] Đã nạp danh sách 4 website nguồn: TruyenFull, TangThuVien, Metruyenchu, Wikidich.',
+    'Nhập link mục lục và CSS selector của website nguồn, rồi bấm "Kích Hoạt Cào Ngay".',
   ]);
-  const [crawlProgress, setCrawlProgress] = useState(0);
-  const [crawlStatusStep, setCrawlStatusStep] = useState('Chờ lệnh cào dữ liệu');
-  const [autoScheduleInterval, setAutoScheduleInterval] = useState('15');
+
+  // Manual chapter form
+  const [chapterStoryId, setChapterStoryId] = useState<string>(stories[0]?.id || '');
+  const [chapterTitle, setChapterTitle] = useState('');
+  const [chapterContent, setChapterContent] = useState('');
+  const [chapterMsg, setChapterMsg] = useState('');
 
   // Ad / Shopee Management State
   const [adsList, setAdsList] = useState<AdSlot[]>(ads);
@@ -86,109 +89,137 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [importTokenInput, setImportTokenInput] = useState('');
   const [importStatus, setImportStatus] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (!selectedStoryId) return;
+    api.admin
+      .crawlConfig(selectedStoryId)
+      .then((cfg) => {
+        if (!cfg) return;
+        setTargetUrl(cfg.tocUrl);
+        setLinkSelector(cfg.linkSelector);
+        setContentSelector(cfg.contentSelector);
+        setTitleSelector(cfg.titleSelector || '');
+      })
+      .catch(() => {});
+  }, [selectedStoryId]);
+
+  const fail = (e: unknown) => alert((e as Error)?.message || 'Thao tác thất bại');
+
   // Handler: Run crawler
   const handleStartCrawl = async () => {
     if (!selectedStoryId || isCrawling) return;
     setIsCrawling(true);
-    setCrawlProgress(5);
-    setCrawlStatusStep('Đang khởi động tiến trình Crawler...');
-
-    setCrawlerLogs((prev) => [
-      `[${new Date().toLocaleTimeString()}] Bắt đầu tác vụ cào dữ liệu cho: ${targetUrl}`,
-      ...prev,
-    ]);
-
-    const result = await runCrawlerForStory(targetUrl, selectedStoryId, (ev: CrawlProgressEvent) => {
-      setCrawlProgress(ev.progressPercent);
-      setCrawlStatusStep(ev.step);
-      setCrawlerLogs((prev) => [`[${new Date().toLocaleTimeString()}] ${ev.log}`, ...prev.slice(0, 100)]);
-    });
-
-    setIsCrawling(false);
-    if (result.success) {
-      // Reload stories
-      const raw = localStorage.getItem('tf_stories_v1');
-      if (raw) onUpdateStories(JSON.parse(raw));
+    setCrawlerLogs([`[${new Date().toLocaleTimeString()}] Bắt đầu cào: ${targetUrl}`]);
+    try {
+      const result = await api.admin.crawl(selectedStoryId, {
+        tocUrl: targetUrl,
+        linkSelector,
+        contentSelector,
+        titleSelector: titleSelector || undefined,
+      });
+      setCrawlerLogs([...result.logs, `Hoàn tất: thêm ${result.added} chương mới.`].reverse());
+      onDataChanged();
+    } catch (e) {
+      setCrawlerLogs([`Lỗi: ${(e as Error).message}`]);
+    } finally {
+      setIsCrawling(false);
     }
   };
 
+  useEffect(() => setAdsList(ads), [ads]);
+
   // Toggle Ad status
-  const handleToggleAd = (adId: string) => {
-    const updated = adsList.map((a) => (a.id === adId ? { ...a, isEnabled: !a.isEnabled } : a));
-    setAdsList(updated);
-    saveStoredAds(updated);
-    onUpdateAds(updated);
+  const handleToggleAd = async (adId: string) => {
+    const ad = adsList.find((a) => a.id === adId);
+    if (!ad) return;
+    try {
+      await api.admin.updateAd(adId, { ...ad, isEnabled: !ad.isEnabled });
+      onDataChanged();
+    } catch (e) {
+      fail(e);
+    }
   };
 
   // Save edited or new ad
-  const handleSaveAd = (ad: AdSlot) => {
-    let updated: AdSlot[];
-    if (adsList.some((a) => a.id === ad.id)) {
-      updated = adsList.map((a) => (a.id === ad.id ? ad : a));
-    } else {
-      updated = [ad, ...adsList];
+  const handleSaveAd = async (ad: AdSlot) => {
+    try {
+      if (adsList.some((a) => a.id === ad.id)) await api.admin.updateAd(ad.id, ad);
+      else await api.admin.createAd(ad);
+      onDataChanged();
+      setShowAdModal(false);
+      setEditingAd(null);
+    } catch (e) {
+      fail(e);
     }
-    setAdsList(updated);
-    saveStoredAds(updated);
-    onUpdateAds(updated);
-    setShowAdModal(false);
-    setEditingAd(null);
   };
 
   // Delete Ad
-  const handleDeleteAd = (adId: string) => {
-    const updated = adsList.filter((a) => a.id !== adId);
-    setAdsList(updated);
-    saveStoredAds(updated);
-    onUpdateAds(updated);
+  const handleDeleteAd = async (adId: string) => {
+    if (!confirm('Xóa quảng cáo này?')) return;
+    try {
+      await api.admin.deleteAd(adId);
+      onDataChanged();
+    } catch (e) {
+      fail(e);
+    }
   };
 
   // Add new story
-  const handleAddStory = (e: React.FormEvent) => {
+  const handleAddStory = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTitle.trim()) return;
+    try {
+      await api.admin.createStory({
+        title: newTitle,
+        author: newAuthor,
+        cover: newCover,
+        description: newDesc,
+        genres: newGenres,
+      });
+      onDataChanged();
+      setShowAddStoryModal(false);
+      setNewTitle('');
+      setNewAuthor('');
+      setNewCover('');
+      setNewDesc('');
+    } catch (err) {
+      fail(err);
+    }
+  };
 
-    const newStory: Story = {
-      id: `story-${Date.now()}`,
-      title: newTitle.trim(),
-      slug: newTitle.toLowerCase().replace(/ /g, '-'),
-      author: newAuthor.trim() || 'Vô Danh',
-      cover:
-        newCover.trim() ||
-        'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=600&auto=format&fit=crop&q=80',
-      description: newDesc.trim() || 'Nội dung truyện đang cập nhật...',
-      genres: newGenres,
-      status: 'ONGOING',
-      rating: { score: 5.0, count: 1 },
-      views: 100,
-      totalChapters: 0,
-      lastUpdated: 'Vừa xong',
-      isHot: false,
-    };
+  const handleDeleteStory = async (story: Story) => {
+    if (!confirm(`Xóa truyện "${story.title}" cùng toàn bộ chương và bình luận?`)) return;
+    try {
+      await api.admin.deleteStory(story.id);
+      onDataChanged();
+    } catch (err) {
+      fail(err);
+    }
+  };
 
-    const updated = [newStory, ...stories];
-    saveStoredStories(updated);
-    onUpdateStories(updated);
-    setShowAddStoryModal(false);
-    setNewTitle('');
-    setNewAuthor('');
-    setNewCover('');
-    setNewDesc('');
+  const handleAddChapter = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chapterStoryId) return;
+    try {
+      const ch = await api.admin.addChapter(chapterStoryId, { title: chapterTitle, content: chapterContent });
+      setChapterMsg(`✓ Đã thêm chương ${ch.chapterNumber}`);
+      setChapterTitle('');
+      setChapterContent('');
+      onDataChanged();
+    } catch (err) {
+      setChapterMsg(`❌ ${(err as Error).message}`);
+    }
   };
 
   // Send push notification
-  const handleSendPush = (e: React.FormEvent) => {
+  const handleSendPush = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!pushTitle.trim() || !pushMessage.trim()) return;
-
-    addNotification({
-      id: `push-${Date.now()}`,
-      title: pushTitle.trim(),
-      message: pushMessage.trim(),
-      timestamp: 'Vừa xong',
-      isRead: false,
-    });
-
+    try {
+      await api.admin.push(pushTitle.trim(), pushMessage.trim());
+    } catch (err) {
+      return fail(err);
+    }
     setPushSentSuccess(true);
     setPushTitle('');
     setPushMessage('');
@@ -243,6 +274,20 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           </div>
 
           <button
+            onClick={async () => {
+              try {
+                await api.admin.logout();
+              } finally {
+                onClose();
+              }
+            }}
+            className="ml-auto mr-2 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-stone-100 hover:bg-stone-200 text-stone-700 cursor-pointer"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Đăng xuất</span>
+          </button>
+
+          <button
             onClick={onClose}
             className="p-2 text-stone-400 hover:text-stone-700 hover:bg-stone-200 rounded-xl transition-colors cursor-pointer"
           >
@@ -253,9 +298,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         {/* Tab Navigation */}
         <div className="flex items-center gap-1 border-b border-stone-200 px-4 sm:px-6 bg-white overflow-x-auto text-xs font-semibold">
           {[
+            { id: 'dashboard', label: 'Tổng Quan', icon: LayoutDashboard },
+            { id: 'stories', label: 'Quản Lý Truyện', icon: BookOpen },
             { id: 'crawler', label: 'Bộ Thu Thập (Crawler)', icon: Bot },
             { id: 'ads_shopee', label: 'Quảng Cáo & Shopee Aff', icon: ShoppingBag },
-            { id: 'stories', label: 'Quản Lý Truyện', icon: BookOpen },
             { id: 'push', label: 'Thông Báo Đẩy (Push)', icon: Bell },
             { id: 'sync', label: 'Đồng Bộ & Sao Lưu', icon: RotateCcw },
           ].map((tab) => {
@@ -280,6 +326,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
         {/* Tab Body */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-stone-50/50">
+          {activeTab === 'dashboard' && (
+            <DashboardTab
+              onGoTo={setActiveTab}
+              dataVersion={stories.length + ads.length}
+            />
+          )}
+
           {/* TAB 1: CRAWLER */}
           {activeTab === 'crawler' && (
             <div className="space-y-6">
@@ -289,11 +342,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   <div className="flex items-center gap-2">
                     <Bot className="w-5 h-5 text-emerald-600" />
                     <h3 className="font-extrabold text-sm sm:text-base">
-                      Cấu Hình Crawler & Tự Động Thu Thập Chương Mới
+                      Thu Thập Chương Mới Từ Website Nguồn
                     </h3>
                   </div>
                   <span className="text-xs bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full font-semibold border border-emerald-200">
-                    Engine: Active
+                    Cấu hình được lưu cho quét tự động (CRAWL_INTERVAL_MIN)
                   </span>
                 </div>
 
@@ -317,34 +370,40 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
                   <div>
                     <label className="text-xs font-semibold text-stone-600 block mb-1">
-                      Link nguồn truyện (TruyenFull / Tangthuvien / Metruyenchu):
+                      Link trang mục lục của truyện nguồn:
                     </label>
                     <input
                       type="text"
                       value={targetUrl}
                       onChange={(e) => setTargetUrl(e.target.value)}
-                      placeholder="https://truyenfull.vn/..."
+                      placeholder="https://nguon-truyen.com/ten-truyen/"
                       className="w-full p-2.5 text-xs sm:text-sm bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:border-emerald-500"
                     />
                   </div>
                 </div>
 
-                {/* Auto Crawl Frequency preset */}
-                <div className="mt-4 pt-4 border-t border-stone-100 flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex items-center gap-2 text-xs text-stone-600">
-                    <span>Chu kỳ tự động quét:</span>
-                    <select
-                      value={autoScheduleInterval}
-                      onChange={(e) => setAutoScheduleInterval(e.target.value)}
-                      className="p-1.5 bg-stone-100 border border-stone-200 rounded-lg font-semibold text-xs text-stone-800"
-                    >
-                      <option value="5">Mỗi 5 phút</option>
-                      <option value="15">Mỗi 15 phút (Khuyên dùng)</option>
-                      <option value="30">Mỗi 30 phút</option>
-                      <option value="60">Mỗi 1 giờ</option>
-                    </select>
-                  </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+                  {[
+                    ['Selector link chương (trong trang mục lục)', linkSelector, setLinkSelector],
+                    ['Selector nội dung chương', contentSelector, setContentSelector],
+                    ['Selector tiêu đề chương (tùy chọn)', titleSelector, setTitleSelector],
+                  ].map(([label, value, setter]) => (
+                    <div key={label as string}>
+                      <label className="text-xs font-semibold text-stone-600 block mb-1">{label as string}</label>
+                      <input
+                        type="text"
+                        value={value as string}
+                        onChange={(e) => (setter as (v: string) => void)(e.target.value)}
+                        className="w-full p-2.5 text-xs sm:text-sm bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:border-emerald-500 font-mono"
+                      />
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-3 text-[11px] text-stone-500">
+                  Chương thứ N = link thứ N trong mục lục; chỉ tải các chương chưa có (tối đa 20 mỗi lần). Chỉ cào nội dung bạn có quyền sử dụng.
+                </p>
 
+                <div className="mt-4 pt-4 border-t border-stone-100 flex flex-wrap items-center justify-end gap-3">
                   <button
                     onClick={handleStartCrawl}
                     disabled={isCrawling}
@@ -367,15 +426,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping" />
                     <span className="font-bold text-white">Crawler Console & Live Logs</span>
                   </div>
-                  <span>{crawlStatusStep} ({crawlProgress}%)</span>
-                </div>
-
-                {/* Progress bar */}
-                <div className="w-full bg-stone-800 h-1.5 rounded-full mb-3 overflow-hidden">
-                  <div
-                    className="bg-emerald-500 h-full transition-all duration-300"
-                    style={{ width: `${crawlProgress}%` }}
-                  />
+                  <span>{isCrawling ? 'Đang chạy...' : 'Sẵn sàng'}</span>
                 </div>
 
                 {/* Logs Terminal */}
@@ -544,6 +595,40 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 </button>
               </div>
 
+              <form onSubmit={handleAddChapter} className="bg-white rounded-2xl border border-stone-200 p-4 space-y-3">
+                <h4 className="font-extrabold text-sm">Đăng chương thủ công</h4>
+                <select
+                  value={chapterStoryId}
+                  onChange={(e) => setChapterStoryId(e.target.value)}
+                  className="w-full p-2.5 text-xs bg-stone-50 border border-stone-200 rounded-xl"
+                >
+                  {stories.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.title} ({s.totalChapters} chương)
+                    </option>
+                  ))}
+                </select>
+                <input
+                  value={chapterTitle}
+                  onChange={(e) => setChapterTitle(e.target.value)}
+                  placeholder="Tiêu đề chương"
+                  className="w-full p-2.5 text-xs bg-stone-50 border border-stone-200 rounded-xl"
+                />
+                <textarea
+                  value={chapterContent}
+                  onChange={(e) => setChapterContent(e.target.value)}
+                  placeholder="Nội dung (mỗi đoạn một dòng)"
+                  rows={6}
+                  className="w-full p-2.5 text-xs bg-stone-50 border border-stone-200 rounded-xl"
+                />
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-stone-600">{chapterMsg}</span>
+                  <button className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs px-4 py-2 rounded-xl cursor-pointer">
+                    Đăng chương
+                  </button>
+                </div>
+              </form>
+
               <div className="bg-white rounded-2xl border border-stone-200 overflow-hidden">
                 <table className="w-full text-left text-xs">
                   <thead className="bg-stone-50 text-stone-500 font-semibold border-b border-stone-200">
@@ -554,6 +639,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       <th className="p-3">Số chương</th>
                       <th className="p-3">Trạng thái</th>
                       <th className="p-3 text-right">Lượt xem</th>
+                      <th className="p-3"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-stone-100">
@@ -589,6 +675,14 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         </td>
                         <td className="p-3 text-right font-medium text-stone-600">
                           {story.views.toLocaleString()}
+                        </td>
+                        <td className="p-3 text-right">
+                          <button
+                            onClick={() => handleDeleteStory(story)}
+                            className="text-red-600 hover:underline font-semibold cursor-pointer"
+                          >
+                            Xóa
+                          </button>
                         </td>
                       </tr>
                     ))}

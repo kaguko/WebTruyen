@@ -15,9 +15,11 @@ import {
   ChevronDown,
   Globe,
   CheckCircle2,
+  User,
 } from 'lucide-react';
 import { Story, Genre, PushNotification } from '../types';
 import { Language, translations } from '../services/i18n';
+import { formatTime } from '../services/format';
 import { markNotificationsAsRead } from '../services/storage';
 
 interface NavbarProps {
@@ -29,7 +31,8 @@ interface NavbarProps {
   onOpenBookmarks: () => void;
   onOpenNotes: () => void;
   onOpenOffline: () => void;
-  onOpenSync: () => void;
+  onOpenAccount: () => void;
+  accountName?: string;
   onOpenAdmin: () => void;
   onFilterGenre: (genre: Genre) => void;
   onFilterRanking: (rankType: string) => void;
@@ -64,7 +67,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenBookmarks,
   onOpenNotes,
   onOpenOffline,
-  onOpenSync,
+  onOpenAccount,
+  accountName,
   onOpenAdmin,
   onFilterGenre,
   onFilterRanking,
@@ -349,7 +353,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 onClick={() => {
                   setIsNotifOpen(!isNotifOpen);
                   if (!isNotifOpen && unreadCount > 0) {
-                    markNotificationsAsRead();
+                    markNotificationsAsRead(notifications);
                   }
                 }}
                 title={t.notifications}
@@ -398,7 +402,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                               {n.title}
                             </span>
                             <span className="text-[10px] text-stone-400 shrink-0">
-                              {n.timestamp}
+                              {formatTime(n.timestamp)}
                             </span>
                           </div>
                           <p className="text-[11px] text-stone-600 mt-1 line-clamp-2">
@@ -422,14 +426,14 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span>{currentLang === 'vi' ? 'VI' : 'EN'}</span>
             </button>
 
-            {/* Admin Portal Button */}
+            {/* Account Button */}
             <button
-              onClick={onOpenAdmin}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-800 hover:bg-emerald-900 text-white shadow-xs transition-colors cursor-pointer"
-              title="Trang quản trị & Cấu hình Crawler / Ads Shopee"
+              onClick={onOpenAccount}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-stone-100 hover:bg-stone-200 text-stone-700 transition-colors cursor-pointer"
+              title="Tài khoản"
             >
-              <Shield className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">{t.admin}</span>
+              <User className="w-3.5 h-3.5 text-stone-500" />
+              <span className="hidden sm:inline max-w-24 truncate">{accountName || 'Đăng nhập'}</span>
             </button>
           </div>
         </div>
