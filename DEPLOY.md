@@ -54,6 +54,8 @@ Bản backup nằm ở `./backups` (giữ 14 bản). **Chép định kỳ ra ngo
 cd ~/WebTruyen && ./deploy/update.sh      # pull, backup, build, restart
 ```
 
+**Tự động (CI/CD):** mỗi lần push vào `main`, GitHub Actions tự deploy. Hướng dẫn thiết lập: [deploy/setup-cicd.md](deploy/setup-cicd.md).
+
 ## 7. Sau khi lên mạng
 - Gửi `https://ten-mien-that.com/sitemap.xml` vào Google Search Console.
 - Thay nội dung mẫu, ảnh, link Shopee, footer; thêm trang điều khoản.

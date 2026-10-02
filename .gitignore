@@ -6,3 +6,6 @@ backups
 .env
 .env.*
 !.env.example
+*.pem
+*.key
+deploy/keys/
