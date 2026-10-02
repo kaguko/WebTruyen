@@ -12,9 +12,38 @@ async function fetchHtml(url: string): Promise<string> {
   return res.text();
 }
 
-function extractParagraphs($: cheerio.CheerioAPI, selector: string): string[] {
-  const el = $(selector).first();
-  if (!el.length) return [];
+const CONTENT_CANDIDATES = [
+  '#chapter-c', '.chapter-c', '#chapter-content', '.chapter-content', '#content', '.content',
+  '.reading-content', '.entry-content', '#chapter_content', '.chapter-body', 'article',
+];
+const CHAPTER_HREF = /(chuong|chapter|chap|hoi|phan|tap|ch)[-_/. ]?\d+/i;
+const CHAPTER_TEXT = /^\s*(chương|chuong|chapter|chap|hồi|tập|phần)\s*\d+/i;
+
+/** Finds the chapter text container with no selector: known ids/classes first, else the block with the most prose. */
+function autoContentElement($: cheerio.CheerioAPI) {
+  for (const sel of CONTENT_CANDIDATES) {
+    const el = $(sel).first();
+    if (el.length && el.text().replace(/\s+/g, ' ').trim().length >= 200) return el;
+  }
+  let best: ReturnType<typeof $> | undefined;
+  let bestScore = 0;
+  $('div, article, section, main').each((_, node) => {
+    const el = $(node);
+    const own = el.children('p').map((_, p) => $(p).text().length).get().reduce((a, b) => a + b, 0);
+    const brText = el.contents().filter((_, c) => c.type === 'text').text().replace(/\s+/g, ' ').trim().length;
+    const linkText = el.find('a').text().length;
+    const score = own + brText - linkText * 2;
+    if (score > bestScore) {
+      bestScore = score;
+      best = el;
+    }
+  });
+  return bestScore >= 200 && best ? best : undefined;
+}
+
+function extractParagraphs($: cheerio.CheerioAPI, selector?: string): string[] {
+  const el = selector ? $(selector).first() : autoContentElement($);
+  if (!el || !el.length) return [];
   el.find('script, style, iframe, ins, .ads, [class*="ads"], [id*="ads"]').remove();
   el.find('br').replaceWith('\n');
   const blocks = el.find('p').length ? el.find('p').map((_, p) => $(p).text()).get() : [el.text()];
@@ -22,6 +51,84 @@ function extractParagraphs($: cheerio.CheerioAPI, selector: string): string[] {
     .flatMap((b) => b.split(/\n+/))
     .map((t) => t.replace(/\s+/g, ' ').trim())
     .filter(Boolean);
+}
+
+/** Chapter links of a TOC page. With no selector, picks the block whose links mostly look like chapters. */
+function collectLinks(toc: cheerio.CheerioAPI, tocUrl: string, selector?: string): { url: string; text: string }[] {
+  const tocNoHash = tocUrl.split('#')[0];
+  const host = new URL(tocUrl).host;
+  const resolve = (a: any): string | undefined => {
+    const href = toc(a).attr('href');
+    if (!href || href.startsWith('javascript:') || href.startsWith('#')) return undefined;
+    try {
+      const u = new URL(href, tocUrl);
+      u.hash = '';
+      return u.toString();
+    } catch {
+      return undefined;
+    }
+  };
+  let anchors: any[];
+  if (selector) {
+    anchors = toc(selector).toArray();
+  } else {
+    const chapterLike = (a: any) => {
+      const abs = resolve(a);
+      if (!abs || abs === tocNoHash || new URL(abs).host !== host) return false;
+      return CHAPTER_TEXT.test(toc(a).text()) || CHAPTER_HREF.test(new URL(abs).pathname);
+    };
+    let best: any;
+    let bestCount = 0;
+    let bestDepth = -1;
+    toc('ul, ol, div, nav, section, table, tbody').each((_, node) => {
+      const all = toc(node).find('a').toArray();
+      if (all.length < 3) return;
+      const count = all.filter(chapterLike).length;
+      if (count < 3 || count / all.length < 0.7) return;
+      const depth = toc(node).parents().length;
+      if (count > bestCount || (count === bestCount && depth > bestDepth)) {
+        best = node;
+        bestCount = count;
+        bestDepth = depth;
+      }
+    });
+    anchors = best ? toc(best).find('a').toArray().filter(chapterLike) : [];
+  }
+  const seen = new Set<string>();
+  const links: { url: string; text: string }[] = [];
+  for (const a of anchors) {
+    const abs = resolve(a);
+    if (!abs || seen.has(abs)) continue;
+    seen.add(abs);
+    links.push({ url: abs, text: toc(a).text().replace(/\s+/g, ' ').trim() });
+  }
+  // Some sites list newest first: put chapter 1 first.
+  const num = (t: string) => Number(/(\d+)/.exec(t)?.[1]);
+  const first = num(links[0]?.text ?? ''), last = num(links[links.length - 1]?.text ?? '');
+  if (links.length > 1 && first > last) links.reverse();
+  return links;
+}
+
+export interface CrawlPreview {
+  chapterTotal: number;
+  firstTitle: string;
+  sample: string[];
+  paragraphs: number;
+}
+
+/** Dry run for the admin UI: finds the chapter list and reads one chapter without saving anything. */
+export async function previewCrawl(cfg: CrawlConfig): Promise<CrawlPreview> {
+  const toc = cheerio.load(await fetchHtml(cfg.tocUrl));
+  const links = collectLinks(toc, cfg.tocUrl, cfg.linkSelector || undefined);
+  if (links.length === 0) {
+    throw new Error('Không nhận ra danh sách chương trong link này. Hãy dán link trang chính của truyện (có liệt kê các chương), hoặc mở "Nâng cao" để nhập selector.');
+  }
+  const $ = cheerio.load(await fetchHtml(links[0].url));
+  const content = extractParagraphs($, cfg.contentSelector || undefined);
+  if (content.length === 0) {
+    throw new Error('Tìm thấy chương nhưng không đọc được nội dung. Hãy mở "Nâng cao" để nhập selector nội dung.');
+  }
+  return { chapterTotal: links.length, firstTitle: links[0].text || 'Chương 1', sample: content.slice(0, 3).map((t) => t.slice(0, 200)), paragraphs: content.length };
 }
 
 export interface CrawlResult {
@@ -117,23 +224,9 @@ async function doCrawl(storyId: string, cfg: CrawlConfig, limit: number, opts: C
 
   log(`Tải mục lục: ${cfg.tocUrl}`);
   const toc = cheerio.load(await fetchHtml(cfg.tocUrl));
-  const seen = new Set<string>();
-  const links: { url: string; text: string }[] = [];
-  toc(cfg.linkSelector).each((_, a) => {
-    const href = toc(a).attr('href');
-    if (!href) return;
-    let abs: string;
-    try {
-      abs = new URL(href, cfg.tocUrl).toString();
-    } catch {
-      return;
-    }
-    if (seen.has(abs)) return;
-    seen.add(abs);
-    links.push({ url: abs, text: toc(a).text().trim() });
-  });
+  const links = collectLinks(toc, cfg.tocUrl, cfg.linkSelector || undefined);
   log(`Tìm thấy ${links.length} chương trong mục lục.`);
-  if (links.length === 0) throw new Error('Không tìm thấy link chương: kiểm tra lại selector danh sách chương.');
+  if (links.length === 0) throw new Error('Không tìm thấy link chương: hãy dán link trang chính của truyện, hoặc nhập selector ở mục Nâng cao.');
 
   saveCrawlConfig(storyId, cfg);
 
@@ -148,8 +241,8 @@ async function doCrawl(storyId: string, cfg: CrawlConfig, limit: number, opts: C
   log(`Sẽ tải ${todo.length} chương (từ chương ${have + 1}), ${CONCURRENCY} chương song song.`);
   const fetchChapter = async (url: string, fallbackTitle: string) => {
     const $ = cheerio.load(await fetchHtml(url));
-    const content = extractParagraphs($, cfg.contentSelector);
-    if (content.length === 0) throw new Error('nội dung rỗng (sai selector nội dung?)');
+    const content = extractParagraphs($, cfg.contentSelector || undefined);
+    if (content.length === 0) throw new Error('không đọc được nội dung (thử nhập selector nội dung ở mục Nâng cao)');
     const title = (cfg.titleSelector && $(cfg.titleSelector).first().text().trim()) || fallbackTitle;
     return { content, title };
   };

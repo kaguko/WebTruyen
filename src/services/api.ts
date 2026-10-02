@@ -91,13 +91,15 @@ export const api = {
     deleteAd: (id: string) => send('DELETE', `/admin/ads/${id}`),
     push: (title: string, message: string) => send('POST', '/admin/notifications', { title, message }),
     crawlConfig: (id: string) =>
-      request<{ tocUrl: string; linkSelector: string; contentSelector: string; titleSelector?: string } | null>(
+      request<{ tocUrl: string; linkSelector?: string; contentSelector?: string; titleSelector?: string } | null>(
         `/admin/stories/${id}/crawl-config`,
       ),
     crawl: (
       id: string,
-      b: { tocUrl: string; linkSelector: string; contentSelector: string; titleSelector?: string; limit?: number },
+      b: { tocUrl: string; linkSelector?: string; contentSelector?: string; titleSelector?: string; limit?: number },
     ) => send<{ started: boolean }>('POST', `/admin/stories/${id}/crawl`, b),
+    crawlPreview: (b: { tocUrl: string; linkSelector?: string; contentSelector?: string }) =>
+      send<{ chapterTotal: number; firstTitle: string; sample: string[]; paragraphs: number }>('POST', '/admin/crawl-preview', b),
     crawlStatus: (id: string) =>
       request<CrawlStatus>(`/admin/stories/${id}/crawl-status`),
     crawlStop: (id: string) => send<{ stopped: boolean }>('POST', `/admin/stories/${id}/crawl-stop`),
