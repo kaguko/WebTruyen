@@ -70,7 +70,8 @@ Lấy private key trên Windows: `Get-Content $env:USERPROFILE\.ssh\github_deplo
 | Triệu chứng trong log | Cách xử lý |
 |---|---|
 | `ssh: handshake failed` / `unable to authenticate` | Sai `SSH_PRIVATE_KEY` (thiếu dòng BEGIN/END, copy thiếu) hoặc public key chưa nằm trong `~/.ssh/authorized_keys`, hoặc sai `SSH_USER`. |
-| `i/o timeout` / `connection refused` | Sai `SSH_HOST`, hoặc Security Group chưa mở cổng 22 cho GitHub (IP của GitHub Actions thay đổi; nếu bạn giới hạn SSH theo IP cá nhân thì workflow sẽ không vào được). |
+| `dial tcp ***:22: i/o timeout` | Runner của GitHub không tới được cổng 22. Nguyên nhân thường gặp nhất: Security Group đang chỉ cho SSH từ IP cá nhân của bạn. IP của GitHub Actions thay đổi liên tục nên không thể whitelist gọn; cách đơn giản là mở cổng 22 cho `0.0.0.0/0` (an toàn nếu chỉ cho đăng nhập bằng key, tắt password: `PasswordAuthentication no`). Cũng kiểm tra `SSH_HOST` đúng IP và instance đang chạy. |
+| `connection refused` | Sai `SSH_HOST` hoặc sshd không chạy trên VPS. |
 | `Permission denied (publickey)` ở bước `git pull` | Chưa làm Deploy key ở bước 3. |
 | `fatal: Not possible to fast-forward` | VPS có commit/sửa tay lệch với main. SSH vào xem `git status`, xử lý rồi chạy lại. |
 | `permission denied ... docker.sock` | `ec2-user` chưa thuộc nhóm docker (bước 3). |

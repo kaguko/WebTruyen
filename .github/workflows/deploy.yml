@@ -26,7 +26,6 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script_stop: true   # dừng ngay khi 1 lệnh lỗi
           script: |
             set -euo pipefail
 
