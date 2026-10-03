@@ -17,9 +17,27 @@ export const AdBanner: React.FC<AdBannerProps> = ({ placement, ads, className = 
   const [roll] = useState(() => Math.random());
   const activeAd = eligible.length ? eligible[Math.floor(roll * eligible.length) % eligible.length] : undefined;
 
+  // POPUP: shown once per browser session, a moment after the reader lands on a story page.
+  const [popupOpen, setPopupOpen] = useState(false);
+  const popupKey = 'popup-ad-shown';
   useEffect(() => {
-    if (activeAd) trackAdView(activeAd.id);
-  }, [activeAd?.id]);
+    if (placement !== 'POPUP' || !activeAd) return;
+    try {
+      if (sessionStorage.getItem(popupKey)) return;
+    } catch {}
+    const t = setTimeout(() => {
+      try {
+        sessionStorage.setItem(popupKey, '1');
+      } catch {}
+      setPopupOpen(true);
+      trackAdView(activeAd.id);
+    }, 2500);
+    return () => clearTimeout(t);
+  }, [placement, activeAd?.id]);
+
+  useEffect(() => {
+    if (placement !== 'POPUP' && activeAd) trackAdView(activeAd.id);
+  }, [placement, activeAd?.id]);
 
   if (!activeAd || dismissed) {
     return null;
@@ -28,6 +46,53 @@ export const AdBanner: React.FC<AdBannerProps> = ({ placement, ads, className = 
   const handleClick = () => {
     trackAdClick(activeAd.id);
   };
+
+  if (placement === 'POPUP') {
+    if (!popupOpen) return null;
+    return (
+      <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setDismissed(true)}>
+        <div
+          className="relative bg-white rounded-3xl max-w-sm w-full p-5 shadow-2xl text-center"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            onClick={() => setDismissed(true)}
+            className="absolute top-3 right-3 p-1.5 text-stone-400 hover:text-stone-600 rounded-lg hover:bg-stone-100 cursor-pointer"
+            title="Đóng"
+          >
+            <X className="w-5 h-5" />
+          </button>
+          <p className="text-[11px] text-stone-400 mb-2">Tài trợ · Ủng hộ web miễn phí này</p>
+          {activeAd.imageUrl && (
+            <img src={activeAd.imageUrl} alt={activeAd.title} className="w-40 h-40 object-cover rounded-2xl mx-auto mb-3" />
+          )}
+          {activeAd.tag && (
+            <span className="inline-block bg-amber-100 text-amber-800 text-[10px] font-semibold px-2 py-0.5 rounded-full mb-2">
+              {activeAd.tag}
+            </span>
+          )}
+          <h4 className="font-bold text-sm text-stone-900">{activeAd.title}</h4>
+          {activeAd.description && <p className="text-xs text-stone-600 mt-1">{activeAd.description}</p>}
+          <a
+            href={activeAd.targetUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => {
+              handleClick();
+              setDismissed(true);
+            }}
+            className="mt-4 inline-flex items-center justify-center gap-1.5 w-full bg-orange-600 hover:bg-orange-700 text-white text-sm font-semibold px-4 py-2.5 rounded-xl shadow-xs transition-colors"
+          >
+            <span>Xem Ngay</span>
+            <ExternalLink className="w-4 h-4" />
+          </a>
+          <button onClick={() => setDismissed(true)} className="mt-2 text-xs text-stone-500 hover:text-stone-700 cursor-pointer">
+            Để sau
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (placement === 'HEADER_BANNER') {
     return (

@@ -258,7 +258,7 @@ admin.delete('/stories/:id/chapters/:n', (req, res) => {
 const sanitizeAd = (b: any, id: string, prev?: AdSlot): AdSlot => ({
   id,
   title: str(b.title, 200) || prev?.title || 'Quảng cáo',
-  placement: ['HEADER_BANNER', 'SIDEBAR', 'IN_READER', 'FLOAT_BOTTOM'].includes(b.placement) ? b.placement : prev?.placement || 'SIDEBAR',
+  placement: ['HEADER_BANNER', 'SIDEBAR', 'IN_READER', 'FLOAT_BOTTOM', 'POPUP'].includes(b.placement) ? b.placement : prev?.placement || 'SIDEBAR',
   imageUrl: safeUrl(b.imageUrl) || prev?.imageUrl || '',
   targetUrl: safeUrl(b.targetUrl) || prev?.targetUrl || '',
   affiliateCode: str(b.affiliateCode, 100) || prev?.affiliateCode,

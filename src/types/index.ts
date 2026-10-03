@@ -115,7 +115,7 @@ export interface CrawlerJob {
   logs: string[];
 }
 
-export type AdPlacement = 'HEADER_BANNER' | 'SIDEBAR' | 'IN_READER' | 'FLOAT_BOTTOM';
+export type AdPlacement = 'HEADER_BANNER' | 'SIDEBAR' | 'IN_READER' | 'FLOAT_BOTTOM' | 'POPUP';
 
 export interface AdSlot {
   id: string;
