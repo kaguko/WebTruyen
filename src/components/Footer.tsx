@@ -34,7 +34,7 @@ export const Footer: React.FC<FooterProps> = ({ onSelectGenre, onOpenAdmin }) =>
                 <BookOpen className="w-5 h-5" />
               </div>
               <span className="font-extrabold text-xl text-white tracking-tight">
-                TruyenFull <span className="text-emerald-500 font-bold text-sm">Live</span>
+                Truyện <span className="text-emerald-500 font-bold text-sm">Basic</span>
               </span>
             </div>
             <p className="text-xs text-stone-400 leading-relaxed">
@@ -94,7 +94,7 @@ export const Footer: React.FC<FooterProps> = ({ onSelectGenre, onOpenAdmin }) =>
         {/* Bottom copyright */}
         <div className="pt-6 flex flex-col sm:flex-row items-center justify-between text-xs text-stone-500 gap-3">
           <div>
-            © {new Date().getFullYear()} TruyenFull Live. Mọi nội dung được sưu tầm và tổng hợp tự động.
+            © {new Date().getFullYear()} Truyện Basic. Mọi nội dung được sưu tầm và tổng hợp tự động.
           </div>
           <div className="flex items-center gap-1 text-stone-400">
             <span>Thiết kế tối ưu trải nghiệm người đọc</span>

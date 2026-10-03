@@ -2,7 +2,7 @@ export type Language = 'vi' | 'en';
 
 export const translations = {
   vi: {
-    siteName: 'TruyenFull Live',
+    siteName: 'Truyện Basic',
     tagline: 'Nền tảng đọc truyện online chất lượng cao, cập nhật nhanh nhất',
     home: 'Trang chủ',
     genres: 'Thể loại',
@@ -75,7 +75,7 @@ export const translations = {
     noNotifications: 'Không có thông báo mới nào',
   },
   en: {
-    siteName: 'TruyenFull Live',
+    siteName: 'Truyện Basic',
     tagline: 'High quality web novel reading platform with automated updates',
     home: 'Home',
     genres: 'Genres',

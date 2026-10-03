@@ -388,7 +388,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   Bảng Quản Trị Hệ Thống (Admin Control)
                 </h2>
                 <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                  TruyenFull Live Core
+                  Truyện Basic Core
                 </span>
               </div>
               <p className="text-xs text-stone-500">

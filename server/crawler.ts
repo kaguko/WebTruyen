@@ -2,7 +2,7 @@ import * as cheerio from 'cheerio';
 import type { Chapter } from '../src/types';
 import { CrawlConfig, chapterCount, getStory, upsertChapter, addNotification, saveCrawlConfig, recordCrawlRun } from './db';
 
-const UA = 'Mozilla/5.0 (compatible; TruyenFullBot/1.0)';
+const UA = 'Mozilla/5.0 (compatible; TruyenBasicBot/1.0)';
 
 async function fetchHtml(url: string): Promise<string> {
   const u = new URL(url);

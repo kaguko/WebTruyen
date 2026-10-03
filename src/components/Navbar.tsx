@@ -129,10 +129,10 @@ export const Navbar: React.FC<NavbarProps> = ({
               <div className="hidden xs:block">
                 <div className="flex items-center gap-1.5">
                   <span className="font-extrabold text-xl tracking-tight text-stone-900 group-hover:text-emerald-700 transition-colors">
-                    TruyenFull
+                    Truyện
                   </span>
                   <span className="bg-emerald-600 text-white text-[10px] font-bold uppercase px-1.5 py-0.5 rounded tracking-wider animate-pulse">
-                    Live
+                    Basic
                   </span>
                 </div>
                 <p className="text-[11px] text-stone-500 hidden sm:block line-clamp-1">

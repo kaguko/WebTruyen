@@ -79,7 +79,7 @@ export const UserCabinets: React.FC<UserCabinetsProps> = ({
   };
 
   const handleExportTxt = (offlineItem: OfflineStoryData) => {
-    const content = `TRUYỆN: ${offlineItem.story.title}\nTÁC GIẢ: ${offlineItem.story.author}\nNGUỒN: TruyenFull Live\n\n` +
+    const content = `TRUYỆN: ${offlineItem.story.title}\nTÁC GIẢ: ${offlineItem.story.author}\nNGUỒN: Truyện Basic\n\n` +
       offlineItem.chapters.map(c => `=== ${c.title} ===\n\n${c.content.join('\n\n')}\n\n`).join('\n\n');
     
     const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
