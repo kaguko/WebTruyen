@@ -17,7 +17,7 @@ export const AdBanner: React.FC<AdBannerProps> = ({ placement, ads, className = 
   const [roll] = useState(() => Math.random());
   const activeAd = eligible.length ? eligible[Math.floor(roll * eligible.length) % eligible.length] : undefined;
 
-  // POPUP: shown once per browser session, a moment after the reader lands on a story page.
+  // POPUP: shown once per browser session, when the reader reaches the end of a chapter.
   const [popupOpen, setPopupOpen] = useState(false);
   const popupKey = 'popup-ad-shown';
   useEffect(() => {
@@ -25,14 +25,20 @@ export const AdBanner: React.FC<AdBannerProps> = ({ placement, ads, className = 
     try {
       if (sessionStorage.getItem(popupKey)) return;
     } catch {}
-    const t = setTimeout(() => {
+    const onScroll = () => {
+      const doc = document.documentElement;
+      // Ignore short pages (nothing read yet) and wait until ~95% of the page has been scrolled.
+      if (doc.scrollHeight < window.innerHeight * 1.5) return;
+      if (window.scrollY + window.innerHeight < doc.scrollHeight * 0.95) return;
       try {
         sessionStorage.setItem(popupKey, '1');
       } catch {}
       setPopupOpen(true);
       trackAdView(activeAd.id);
-    }, 2500);
-    return () => clearTimeout(t);
+      window.removeEventListener('scroll', onScroll);
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
   }, [placement, activeAd?.id]);
 
   useEffect(() => {
