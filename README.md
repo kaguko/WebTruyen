@@ -1,4 +1,4 @@
-# TruyenFull Live
+# Truyện Basic
 
 Web đọc truyện chữ: React 19 + Vite + Tailwind 4 (frontend), Express + SQLite (backend, `node:sqlite`, cần Node ≥ 22.13).
 

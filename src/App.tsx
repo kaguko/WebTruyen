@@ -190,7 +190,7 @@ export default function App() {
   useEffect(() => {
     if (!routeReady) return;
     if (window.location.pathname !== desiredPath) window.history.pushState(null, '', desiredPath);
-    const base = 'TruyenFull Live';
+    const base = 'Truyện Basic';
     document.title =
       currentView === 'reader' && selectedStory
         ? `${selectedStory.title} - Chương ${activeChapterNumber} | ${base}`

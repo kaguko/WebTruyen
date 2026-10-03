@@ -4,7 +4,7 @@ import type { Request, Response } from 'express';
 import * as db from './db';
 import { parseRoute, storyPath, chapterPath, genrePath, GENRES } from '../src/routes';
 
-const SITE_NAME = 'TruyenFull Live';
+const SITE_NAME = 'Truyện Basic';
 const DEFAULT_TITLE = `${SITE_NAME} - Đọc Truyện Online Tối Ưu, Cập Nhật Nhanh`;
 const DEFAULT_DESC =
   'Nền tảng đọc truyện chữ online mượt mà: cập nhật chương mới nhanh, đọc offline, ghi chú, chế độ đọc ban đêm.';
