@@ -12,7 +12,7 @@ import { hashPassword, verifyPassword } from './password';
 import { crawlStory, previewCrawl, startCrawlJob, getCrawlJob, stopCrawlJob, MAX_CRAWL_LIMIT } from './crawler';
 import { renderPage, robots, sitemap } from './seo';
 import type { Story, Chapter, AdSlot } from '../src/types';
-import { slugify, parseRoute, GENRES, genrePath, storyPath, chapterPath } from '../src/routes';
+import { slugify, parseRoute, genrePath, storyPath, chapterPath } from '../src/routes';
 
 const app = express();
 app.disable('x-powered-by');
@@ -26,6 +26,12 @@ app.use((_, res, next) => {
 
 const str = (v: unknown, max: number, fallback = ''): string =>
   typeof v === 'string' ? v.trim().slice(0, max) : fallback;
+/** Keeps only genres that exist in the editable list (max 5); falls back to the given default. */
+const cleanGenres = (input: unknown, fallback: string[]): string[] => {
+  const known = db.getGenres();
+  const picked = Array.isArray(input) ? [...new Set(input.filter((g): g is string => typeof g === 'string' && known.includes(g)))] : [];
+  return picked.length ? picked.slice(0, 5) : fallback;
+};
 const safeUrl = (v: unknown): string => {
   const s = str(v, 2000);
   return /^https?:\/\//i.test(s) ? s : '';
@@ -69,6 +75,7 @@ api.post('/stories/:id/chapters/:n/view', (req, res) => {
   db.bumpChapterViews(req.params.id, Number(req.params.n));
   res.json({ ok: true });
 });
+api.get('/genres', (_req, res) => res.json(db.getGenres()));
 api.get('/ads', (_req, res) => res.json(db.listAds()));
 api.post('/ads/:id/click', (req, res) => {
   db.bumpAdClick(req.params.id);
@@ -194,7 +201,7 @@ admin.post('/stories', (req, res) => {
       safeUrl(req.body?.cover) ||
       'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=600&auto=format&fit=crop&q=80',
     description: str(req.body?.description, 5000) || 'Nội dung truyện đang cập nhật...',
-    genres: Array.isArray(req.body?.genres) && req.body.genres.length ? req.body.genres.slice(0, 5) : ['Tiên Hiệp'],
+    genres: cleanGenres(req.body?.genres, [db.getGenres()[0] ?? 'Khác']),
     status: req.body?.status === 'COMPLETED' ? 'COMPLETED' : 'ONGOING',
     rating: { score: 0, count: 0 },
     views: 0,
@@ -217,10 +224,39 @@ admin.put('/stories/:id', (req, res) => {
     description: b.description !== undefined ? str(b.description, 5000) : cur.description,
     status: b.status === 'COMPLETED' || b.status === 'ONGOING' ? b.status : cur.status,
     isHot: typeof b.isHot === 'boolean' ? b.isHot : cur.isHot,
-    genres: Array.isArray(b.genres) && b.genres.length ? b.genres.slice(0, 5) : cur.genres,
+    genres: cleanGenres(b.genres, cur.genres),
   };
   db.upsertStory(next);
   res.json(next);
+});
+const genreName = (v: unknown) => str(v, 30).replace(/\s+/g, ' ');
+admin.post('/genres', (req, res) => {
+  const name = genreName(req.body?.name);
+  const list = db.getGenres();
+  if (name.length < 2 || !slugify(name)) return res.status(400).json({ error: 'Tên thể loại cần ít nhất 2 ký tự chữ hoặc số' });
+  if (list.length >= 60) return res.status(400).json({ error: 'Tối đa 60 thể loại' });
+  if (list.some((g) => slugify(g) === slugify(name))) return res.status(409).json({ error: 'Thể loại này đã có' });
+  db.addGenre(name);
+  res.status(201).json(db.getGenres());
+});
+admin.post('/genres/rename', (req, res) => {
+  const from = genreName(req.body?.from);
+  const to = genreName(req.body?.to);
+  const list = db.getGenres();
+  if (!list.includes(from)) return res.status(404).json({ error: 'Không tìm thấy thể loại' });
+  if (to.length < 2 || !slugify(to)) return res.status(400).json({ error: 'Tên mới cần ít nhất 2 ký tự chữ hoặc số' });
+  // Renaming onto a different existing genre merges the two; same-slug (e.g. only case changes) is a plain rename.
+  const clash = list.find((g) => g !== from && slugify(g) === slugify(to));
+  db.renameGenre(from, clash ?? to);
+  res.json(db.getGenres());
+});
+admin.post('/genres/delete', (req, res) => {
+  const name = genreName(req.body?.name);
+  const list = db.getGenres();
+  if (!list.includes(name)) return res.status(404).json({ error: 'Không tìm thấy thể loại' });
+  if (list.length <= 1) return res.status(400).json({ error: 'Phải giữ lại ít nhất 1 thể loại' });
+  db.deleteGenre(name);
+  res.json(db.getGenres());
 });
 admin.delete('/stories/:id', (req, res) => {
   db.deleteStory(req.params.id);

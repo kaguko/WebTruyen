@@ -1,18 +1,4 @@
-export type Genre =
-  | 'Tiên Hiệp'
-  | 'Kiếm Hiệp'
-  | 'Huyền Huyễn'
-  | 'Ngôn Tình'
-  | 'Đô Thị'
-  | 'Khoa Huyễn'
-  | 'Võng Du'
-  | 'Dị Năng'
-  | 'Linh Dị'
-  | 'Trọng Sinh'
-  | 'Xuyên Không'
-  | 'Hệ Thống'
-  | 'Mạt Thế'
-  | 'Cổ Đại';
+export type Genre = string;
 
 export type StoryStatus = 'ONGOING' | 'COMPLETED';
 

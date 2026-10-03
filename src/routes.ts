@@ -15,7 +15,8 @@ export const GENRES = [
   'Dị Năng', 'Linh Dị', 'Trọng Sinh', 'Xuyên Không', 'Hệ Thống', 'Mạt Thế', 'Cổ Đại',
 ] as const;
 
-export const genreFromSlug = (slug: string): string | undefined => GENRES.find((g) => slugify(g) === slug);
+export const genreFromSlug = (slug: string, genres: readonly string[] = GENRES): string | undefined =>
+  genres.find((g) => slugify(g) === slug);
 
 export const homePath = () => '/';
 export const genrePath = (genre: string) => `/the-loai/${slugify(genre)}`;
@@ -29,12 +30,12 @@ export type Route =
   | { type: 'chapter'; slug: string; n: number }
   | { type: 'notfound' };
 
-export const parseRoute = (pathname: string): Route => {
+export const parseRoute = (pathname: string, genres: readonly string[] = GENRES): Route => {
   const p = pathname.replace(/\/+$/, '') || '/';
   if (p === '/') return { type: 'home' };
   let m = p.match(/^\/the-loai\/([a-z0-9-]+)$/);
   if (m) {
-    const genre = genreFromSlug(m[1]);
+    const genre = genreFromSlug(m[1], genres);
     return genre ? { type: 'genre', genre } : { type: 'notfound' };
   }
   m = p.match(/^\/truyen\/([a-z0-9-]+)$/);

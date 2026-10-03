@@ -34,10 +34,40 @@ import { DashboardTab } from './DashboardTab';
 
 interface AdminPortalProps {
   stories: Story[];
+  genres: Genre[];
   ads: AdSlot[];
   onDataChanged: () => void;
   onClose: () => void;
 }
+
+const MAX_STORY_GENRES = 5;
+
+/** Chips to pick up to MAX_STORY_GENRES genres for a story. */
+const GenrePicker: React.FC<{ genres: Genre[]; value: Genre[]; onChange: (v: Genre[]) => void }> = ({ genres, value, onChange }) => (
+  <div>
+    <div className="flex flex-wrap gap-1.5">
+      {genres.map((g) => {
+        const on = value.includes(g);
+        return (
+          <button
+            key={g}
+            type="button"
+            onClick={() => {
+              if (on) onChange(value.filter((x) => x !== g));
+              else if (value.length < MAX_STORY_GENRES) onChange([...value, g]);
+            }}
+            className={`text-[11px] px-2.5 py-1 rounded-full font-semibold border cursor-pointer transition-colors ${
+              on ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-stone-50 text-stone-600 border-stone-200 hover:border-emerald-400'
+            }`}
+          >
+            {g}
+          </button>
+        );
+      })}
+    </div>
+    <p className="text-[10px] text-stone-400 mt-1">Chọn tối đa {MAX_STORY_GENRES} thể loại (đã chọn {value.length}). Thể loại đầu tiên là thể loại chính.</p>
+  </div>
+);
 
 const PLACEMENT_LABEL: Record<string, string> = {
   HEADER_BANNER: 'Đầu trang',
@@ -59,6 +89,7 @@ export type AdminTab = 'dashboard' | 'stories' | 'crawler' | 'ads_shopee' | 'pus
 
 export const AdminPortal: React.FC<AdminPortalProps> = ({
   stories,
+  genres,
   ads,
   onDataChanged,
   onClose,
@@ -100,7 +131,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [newAuthor, setNewAuthor] = useState('');
   const [newCover, setNewCover] = useState('');
   const [newDesc, setNewDesc] = useState('');
-  const [newGenres, setNewGenres] = useState<Genre[]>(['Tiên Hiệp']);
+  const [editingStory, setEditingStory] = useState<Story | null>(null);
+  const [newGenreName, setNewGenreName] = useState('');
+  const [newGenres, setNewGenres] = useState<Genre[]>([]);
 
   // Push Notification State
   const [pushTitle, setPushTitle] = useState('');
@@ -297,6 +330,63 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       setNewAuthor('');
       setNewCover('');
       setNewDesc('');
+      setNewGenres([]);
+    } catch (err) {
+      fail(err);
+    }
+  };
+
+  const handleSaveStory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingStory) return;
+    if (!editingStory.title.trim()) return alert('Hãy nhập tên truyện.');
+    if (editingStory.genres.length === 0) return alert('Hãy chọn ít nhất 1 thể loại.');
+    try {
+      await api.admin.updateStory(editingStory.id, {
+        title: editingStory.title,
+        author: editingStory.author,
+        cover: editingStory.cover,
+        description: editingStory.description,
+        status: editingStory.status,
+        isHot: editingStory.isHot,
+        genres: editingStory.genres,
+      });
+      onDataChanged();
+      setEditingStory(null);
+    } catch (err) {
+      fail(err);
+    }
+  };
+
+  const handleAddGenre = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newGenreName.trim()) return;
+    try {
+      await api.admin.addGenre(newGenreName);
+      setNewGenreName('');
+      onDataChanged();
+    } catch (err) {
+      fail(err);
+    }
+  };
+
+  const handleRenameGenre = async (g: Genre) => {
+    const to = prompt(`Đổi tên thể loại "${g}" thành:`, g)?.trim();
+    if (!to || to === g) return;
+    try {
+      await api.admin.renameGenre(g, to);
+      onDataChanged();
+    } catch (err) {
+      fail(err);
+    }
+  };
+
+  const handleDeleteGenre = async (g: Genre) => {
+    const n = stories.filter((s) => s.genres.includes(g)).length;
+    if (!confirm(`Xóa thể loại "${g}"?${n ? ` ${n} truyện đang dùng sẽ bị gỡ thể loại này.` : ''}`)) return;
+    try {
+      await api.admin.deleteGenre(g);
+      onDataChanged();
     } catch (err) {
       fail(err);
     }
@@ -833,6 +923,40 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 </div>
               </form>
 
+              <div className="bg-white rounded-2xl border border-stone-200 p-4 space-y-3">
+                <div>
+                  <h4 className="font-extrabold text-sm">Quản lý thể loại</h4>
+                  <p className="text-[11px] text-stone-500">
+                    Thể loại hiện trên menu, chân trang và bộ lọc. Đổi tên sẽ cập nhật cho mọi truyện đang dùng.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {genres.map((g) => (
+                    <span key={g} className="inline-flex items-center gap-1 bg-stone-100 text-stone-700 rounded-full pl-3 pr-1 py-1 text-xs font-semibold">
+                      {g}
+                      <span className="text-[10px] text-stone-400 font-normal">({stories.filter((s) => s.genres.includes(g)).length})</span>
+                      <button onClick={() => handleRenameGenre(g)} className="p-1 hover:bg-stone-200 rounded-full cursor-pointer" title="Đổi tên">
+                        <Edit className="w-3 h-3" />
+                      </button>
+                      <button onClick={() => handleDeleteGenre(g)} className="p-1 hover:bg-red-100 text-red-500 rounded-full cursor-pointer" title="Xóa">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+                <form onSubmit={handleAddGenre} className="flex gap-2">
+                  <input
+                    value={newGenreName}
+                    onChange={(e) => setNewGenreName(e.target.value)}
+                    placeholder="Thêm thể loại mới, ví dụ: Quan Trường"
+                    className="flex-1 p-2.5 text-xs bg-stone-50 border border-stone-200 rounded-xl"
+                  />
+                  <button className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs px-4 py-2 rounded-xl cursor-pointer">
+                    Thêm
+                  </button>
+                </form>
+              </div>
+
               <div className="bg-white rounded-2xl border border-stone-200 overflow-hidden">
                 <table className="w-full text-left text-xs">
                   <thead className="bg-stone-50 text-stone-500 font-semibold border-b border-stone-200">
@@ -859,9 +983,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         </td>
                         <td className="p-3 text-stone-600">{story.author}</td>
                         <td className="p-3">
-                          <span className="bg-stone-100 text-stone-600 px-2 py-0.5 rounded text-[10px]">
-                            {story.genres[0]}
-                          </span>
+                          <div className="flex flex-wrap gap-1">
+                            {story.genres.map((g) => (
+                              <span key={g} className="bg-stone-100 text-stone-600 px-2 py-0.5 rounded text-[10px]">
+                                {g}
+                              </span>
+                            ))}
+                          </div>
                         </td>
                         <td className="p-3 font-semibold text-emerald-700">
                           {story.totalChapters} c
@@ -880,7 +1008,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         <td className="p-3 text-right font-medium text-stone-600">
                           {story.views.toLocaleString()}
                         </td>
-                        <td className="p-3 text-right">
+                        <td className="p-3 text-right whitespace-nowrap">
+                          <button
+                            onClick={() => setEditingStory({ ...story })}
+                            className="text-emerald-700 hover:underline font-semibold cursor-pointer mr-3"
+                          >
+                            Sửa
+                          </button>
                           <button
                             onClick={() => handleDeleteStory(story)}
                             className="text-red-600 hover:underline font-semibold cursor-pointer"
@@ -1147,6 +1281,87 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         </div>
       )}
 
+      {/* Modal: Edit Story */}
+      {editingStory && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <form
+            onSubmit={handleSaveStory}
+            className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-3 max-h-[90vh] overflow-y-auto"
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-stone-200">
+              <h3 className="font-bold text-base">Sửa truyện</h3>
+              <button type="button" onClick={() => setEditingStory(null)} className="text-stone-400 hover:text-stone-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            {(
+              [
+                ['Tên truyện:', 'title'],
+                ['Tác giả:', 'author'],
+                ['Ảnh bìa URL:', 'cover'],
+              ] as const
+            ).map(([label, key]) => (
+              <div key={key}>
+                <label className="text-xs font-semibold text-stone-600 block mb-1">{label}</label>
+                <input
+                  type="text"
+                  value={editingStory[key]}
+                  onChange={(e) => setEditingStory({ ...editingStory, [key]: e.target.value })}
+                  className="w-full p-2.5 text-xs bg-stone-50 border border-stone-200 rounded-xl"
+                />
+              </div>
+            ))}
+            <div>
+              <label className="text-xs font-semibold text-stone-600 block mb-1">Thể loại:</label>
+              <GenrePicker
+                genres={genres}
+                value={editingStory.genres}
+                onChange={(v) => setEditingStory({ ...editingStory, genres: v })}
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-stone-600 block mb-1">Giới thiệu ngắn:</label>
+              <textarea
+                value={editingStory.description}
+                onChange={(e) => setEditingStory({ ...editingStory, description: e.target.value })}
+                rows={3}
+                className="w-full p-2.5 text-xs bg-stone-50 border border-stone-200 rounded-xl resize-none"
+              />
+            </div>
+            <div className="flex items-center gap-4">
+              <label className="flex items-center gap-2 text-xs font-semibold text-stone-600">
+                Trạng thái:
+                <select
+                  value={editingStory.status}
+                  onChange={(e) => setEditingStory({ ...editingStory, status: e.target.value as Story['status'] })}
+                  className="p-2 text-xs bg-stone-50 border border-stone-200 rounded-xl"
+                >
+                  <option value="ONGOING">Đang ra</option>
+                  <option value="COMPLETED">Hoàn thành</option>
+                </select>
+              </label>
+              <label className="flex items-center gap-2 text-xs font-semibold text-stone-600">
+                <input
+                  type="checkbox"
+                  checked={!!editingStory.isHot}
+                  onChange={(e) => setEditingStory({ ...editingStory, isHot: e.target.checked })}
+                  className="accent-emerald-600"
+                />
+                Truyện hot (hiện ở banner đầu trang)
+              </label>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" onClick={() => setEditingStory(null)} className="px-4 py-2 text-xs font-semibold text-stone-600 hover:bg-stone-100 rounded-xl">
+                Hủy
+              </button>
+              <button type="submit" className="px-5 py-2 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl shadow-xs">
+                Lưu
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
       {/* Modal: Add Story */}
       {showAddStoryModal && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
@@ -1198,6 +1413,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 placeholder="https://images.unsplash.com/..."
                 className="w-full p-2.5 text-xs bg-stone-50 border border-stone-200 rounded-xl"
               />
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-stone-600 block mb-1">Thể loại:</label>
+              <GenrePicker genres={genres} value={newGenres} onChange={setNewGenres} />
             </div>
 
             <div>

@@ -23,6 +23,7 @@ import { formatTime } from '../services/format';
 import { markNotificationsAsRead } from '../services/storage';
 
 interface NavbarProps {
+  genres: Genre[];
   currentLang: Language;
   onLanguageChange: (lang: Language) => void;
   stories: Story[];
@@ -43,22 +44,9 @@ interface NavbarProps {
   onNotificationClick: (notif: PushNotification) => void;
 }
 
-const ALL_GENRES: Genre[] = [
-  'Tiên Hiệp',
-  'Kiếm Hiệp',
-  'Huyền Huyễn',
-  'Ngôn Tình',
-  'Đô Thị',
-  'Khoa Huyễn',
-  'Võng Du',
-  'Dị Năng',
-  'Linh Dị',
-  'Trọng Sinh',
-  'Xuyên Không',
-  'Hệ Thống',
-];
 
 export const Navbar: React.FC<NavbarProps> = ({
+  genres,
   currentLang,
   onLanguageChange,
   stories,
@@ -159,7 +147,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
                 {isGenreOpen && (
                   <div className="absolute top-full left-0 mt-1 w-72 bg-white rounded-xl shadow-xl border border-stone-200 p-3 grid grid-cols-2 gap-1 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
-                    {ALL_GENRES.map((g) => (
+                    {genres.map((g) => (
                       <button
                         key={g}
                         onClick={() => {

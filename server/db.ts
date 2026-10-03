@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Story, Chapter, AdSlot, PushNotification, StoryComment } from '../src/types';
+import { GENRES } from '../src/routes';
 import { INITIAL_STORIES, INITIAL_CHAPTERS, INITIAL_ADS } from '../src/data/mockStories';
 
 const DATA_DIR = process.env.DATA_DIR || path.resolve(process.cwd(), 'data');
@@ -11,6 +12,7 @@ export const db = new DatabaseSync(path.join(DATA_DIR, 'truyen.db'));
 db.exec(`
   PRAGMA journal_mode = WAL;
   PRAGMA foreign_keys = ON;
+  CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS stories (id TEXT PRIMARY KEY, position INTEGER NOT NULL, data TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS chapters (
     story_id TEXT NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
@@ -302,6 +304,36 @@ export const getStats = () => {
     })),
     recentComments,
   };
+};
+
+// ---- Genres (editable list; stories reference genres by name) ----
+export const getGenres = (): string[] => {
+  const row = db.prepare("SELECT value FROM kv WHERE key = 'genres'").get() as any;
+  return row ? (JSON.parse(row.value) as string[]) : [...GENRES];
+};
+const setGenres = (list: string[]) => {
+  db.prepare("INSERT INTO kv (key, value) VALUES ('genres', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(
+    JSON.stringify(list),
+  );
+};
+export const addGenre = (name: string) => setGenres([...getGenres(), name]);
+/** Renames (or merges into an existing genre) everywhere: the list and every story. */
+export const renameGenre = (from: string, to: string) => {
+  const list = getGenres();
+  setGenres([...new Set(list.map((g) => (g === from ? to : g)))]);
+  for (const s of listStories()) {
+    if (s.genres.includes(from)) upsertStory({ ...s, genres: [...new Set(s.genres.map((g) => (g === from ? to : g)))] });
+  }
+};
+/** Removes a genre from the list and from stories; a story left with none gets the first remaining genre. */
+export const deleteGenre = (name: string) => {
+  const list = getGenres().filter((g) => g !== name);
+  setGenres(list);
+  for (const s of listStories()) {
+    if (!s.genres.includes(name)) continue;
+    const genres = s.genres.filter((g) => g !== name);
+    upsertStory({ ...s, genres: genres.length ? genres : [list[0]] });
+  }
 };
 
 // ---- Crawl config ----

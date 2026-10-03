@@ -3,26 +3,13 @@ import { BookOpen, Shield, Heart, ShoppingBag, Sparkles, Smartphone, WifiOff } f
 import { Genre } from '../types';
 
 interface FooterProps {
+  genres: Genre[];
   onSelectGenre: (genre: Genre) => void;
   onOpenAdmin: () => void;
 }
 
-const ALL_GENRES: Genre[] = [
-  'Tiên Hiệp',
-  'Kiếm Hiệp',
-  'Huyền Huyễn',
-  'Ngôn Tình',
-  'Đô Thị',
-  'Khoa Huyễn',
-  'Võng Du',
-  'Dị Năng',
-  'Linh Dị',
-  'Trọng Sinh',
-  'Xuyên Không',
-  'Hệ Thống',
-];
 
-export const Footer: React.FC<FooterProps> = ({ onSelectGenre, onOpenAdmin }) => {
+export const Footer: React.FC<FooterProps> = ({ genres, onSelectGenre, onOpenAdmin }) => {
   return (
     <footer className="bg-stone-900 text-stone-300 pt-12 pb-8 border-t border-stone-800 transition-colors">
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
@@ -59,7 +46,7 @@ export const Footer: React.FC<FooterProps> = ({ onSelectGenre, onOpenAdmin }) =>
               Thể Loại Truyện Thịnh Hành
             </h4>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
-              {ALL_GENRES.map((genre) => (
+              {genres.slice(0, 18).map((genre) => (
                 <button
                   key={genre}
                   onClick={() => onSelectGenre(genre)}
