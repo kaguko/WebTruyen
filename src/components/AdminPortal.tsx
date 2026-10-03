@@ -39,6 +39,21 @@ interface AdminPortalProps {
   onClose: () => void;
 }
 
+const PLACEMENT_LABEL: Record<string, string> = {
+  HEADER_BANNER: 'Đầu trang',
+  SIDEBAR: 'Cột phải',
+  IN_READER: 'Trong trang đọc',
+  FLOAT_BOTTOM: 'Góc dưới nổi',
+};
+const isShopeeUrl = (u: string) => /(^|\.)(shopee\.[a-z.]+|shp\.ee|shope\.ee)(\/|$|\?)/i.test(u.replace(/^https?:\/\//i, ''));
+const hostOf = (u: string) => {
+  try {
+    return new URL(u).host;
+  } catch {
+    return '';
+  }
+};
+
 export type AdminTab = 'dashboard' | 'stories' | 'crawler' | 'ads_shopee' | 'push' | 'sync';
 
 export const AdminPortal: React.FC<AdminPortalProps> = ({
@@ -239,6 +254,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
   // Save edited or new ad
   const handleSaveAd = async (ad: AdSlot) => {
+    if (!ad.title.trim()) return alert('Hãy nhập tiêu đề quảng cáo.');
+    if (!/^https?:\/\//i.test(ad.targetUrl.trim())) return alert('Hãy dán link khi bấm vào quảng cáo (bắt đầu bằng https://).');
     try {
       if (adsList.some((a) => a.id === ad.id)) await api.admin.updateAd(ad.id, ad);
       else await api.admin.createAd(ad);
@@ -639,7 +656,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     Quản Lý Vị Trí Quảng Cáo & Link Affiliate Shopee
                   </h3>
                   <p className="text-xs text-stone-500">
-                    Gắn banner sách, phụ kiện đọc sách, flash sale Shopee không làm gián đoạn trải nghiệm người đọc.
+                    Gắn banner sách, phụ kiện đọc sách, flash sale Shopee không làm gián đoạn trải nghiệm người đọc. Nhiều quảng cáo cùng vị trí sẽ được hiển thị luân phiên.
                   </p>
                 </div>
 
@@ -650,10 +667,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       title: '',
                       placement: 'HEADER_BANNER',
                       imageUrl: '',
-                      targetUrl: 'https://shopee.vn',
-                      affiliateCode: 'AFF_SHOPEE_NEW',
+                      targetUrl: '',
                       isShopee: true,
-                      tag: 'Shopee Mall',
+                      tag: '',
                       description: '',
                       isEnabled: true,
                       impressions: 0,
@@ -689,7 +705,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                             </span>
                           )}
                           <span className="bg-stone-100 text-stone-600 text-[10px] font-semibold px-2 py-0.5 rounded-full">
-                            {ad.placement}
+                            {PLACEMENT_LABEL[ad.placement] ?? ad.placement}
                           </span>
                         </div>
 
@@ -721,10 +737,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           <div className="text-[11px] text-stone-500 line-clamp-1 mt-0.5">
                             {ad.description}
                           </div>
-                          {ad.affiliateCode && (
-                            <div className="text-[10px] text-orange-600 font-mono mt-1">
-                              Mã ref: {ad.affiliateCode}
-                            </div>
+                          {hostOf(ad.targetUrl) && (
+                            <div className="text-[10px] text-orange-600 mt-1 truncate">→ {hostOf(ad.targetUrl)}</div>
                           )}
                         </div>
                       </div>
@@ -1057,7 +1071,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
             <div>
               <label className="text-xs font-semibold text-stone-600 block mb-1">
-                Ảnh minh họa URL:
+                Link ảnh sản phẩm (tùy chọn, chuột phải vào ảnh trên Shopee → Sao chép địa chỉ hình ảnh):
               </label>
               <input
                 type="text"
@@ -1069,12 +1083,19 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
             <div>
               <label className="text-xs font-semibold text-stone-600 block mb-1">
-                Đường dẫn Affiliate Shopee (Link Aff):
+                Link khi bấm vào quảng cáo (dán link Affiliate Shopee vào đây):
               </label>
               <input
                 type="text"
+                placeholder="https://s.shopee.vn/xxxx"
                 value={editingAd.targetUrl}
-                onChange={(e) => setEditingAd({ ...editingAd, targetUrl: e.target.value })}
+                onChange={(e) =>
+                  setEditingAd({
+                    ...editingAd,
+                    targetUrl: e.target.value,
+                    isShopee: isShopeeUrl(e.target.value) ? true : editingAd.isShopee,
+                  })
+                }
                 className="w-full p-2.5 text-xs bg-stone-50 border border-stone-200 rounded-xl"
               />
             </div>

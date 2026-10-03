@@ -114,6 +114,10 @@ export const loadChapter = async (storyId: string, n: number): Promise<Chapter |
   }
 };
 
+export const trackAdView = (adId: string) => {
+  void api.adView(adId);
+};
+
 export const trackAdClick = (adId: string) => {
   void api.adClick(adId);
 };

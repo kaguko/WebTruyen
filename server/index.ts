@@ -74,6 +74,10 @@ api.post('/ads/:id/click', (req, res) => {
   db.bumpAdClick(req.params.id);
   res.json({ ok: true });
 });
+api.post('/ads/:id/view', (req, res) => {
+  db.bumpAdView(req.params.id);
+  res.json({ ok: true });
+});
 api.get('/notifications', (_req, res) => res.json(db.listNotifications()));
 api.get('/stories/:id/comments', (req, res) => res.json(db.listComments(req.params.id)));
 
@@ -257,7 +261,7 @@ const sanitizeAd = (b: any, id: string, prev?: AdSlot): AdSlot => ({
   placement: ['HEADER_BANNER', 'SIDEBAR', 'IN_READER', 'FLOAT_BOTTOM'].includes(b.placement) ? b.placement : prev?.placement || 'SIDEBAR',
   imageUrl: safeUrl(b.imageUrl) || prev?.imageUrl || '',
   targetUrl: safeUrl(b.targetUrl) || prev?.targetUrl || '',
-  affiliateCode: str(b.affiliateCode, 100) || undefined,
+  affiliateCode: str(b.affiliateCode, 100) || prev?.affiliateCode,
   isShopee: Boolean(b.isShopee),
   tag: str(b.tag, 40) || undefined,
   description: str(b.description, 500) || undefined,

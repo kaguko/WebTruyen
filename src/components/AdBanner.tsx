@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ExternalLink, ShoppingBag, X, Sparkles } from 'lucide-react';
 import { AdSlot, AdPlacement } from '../types';
-import { trackAdClick } from '../services/storage';
+import { trackAdClick, trackAdView } from '../services/storage';
 
 interface AdBannerProps {
   placement: AdPlacement;
@@ -12,8 +12,14 @@ interface AdBannerProps {
 export const AdBanner: React.FC<AdBannerProps> = ({ placement, ads, className = '' }) => {
   const [dismissed, setDismissed] = useState(false);
 
-  // Filter active ad for this placement
-  const activeAd = ads.find((a) => a.placement === placement && a.isEnabled);
+  // Several ads can share a placement: pick one at random per page view so each gets shown.
+  const eligible = ads.filter((a) => a.placement === placement && a.isEnabled);
+  const [roll] = useState(() => Math.random());
+  const activeAd = eligible.length ? eligible[Math.floor(roll * eligible.length) % eligible.length] : undefined;
+
+  useEffect(() => {
+    if (activeAd) trackAdView(activeAd.id);
+  }, [activeAd?.id]);
 
   if (!activeAd || dismissed) {
     return null;
