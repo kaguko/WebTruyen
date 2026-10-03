@@ -32,7 +32,7 @@ import {
   pushDirty,
   clearLocalUserData,
 } from './services/storage';
-import { parseRoute, storyPath, chapterPath, genrePath } from './routes';
+import { parseRoute, storyPath, chapterPath, genrePath, GENRES } from './routes';
 import { Language, translations } from './services/i18n';
 import { Navbar } from './components/Navbar';
 import { HotCarousel } from './components/HotCarousel';
@@ -64,6 +64,8 @@ export default function App() {
   // Global Data States
   const [stories, setStories] = useState<Story[]>([]);
   const [ads, setAds] = useState<AdSlot[]>([]);
+  const [genres, setGenres] = useState<Genre[]>([...GENRES]);
+  const [genresLoaded, setGenresLoaded] = useState(false);
   const [history, setHistory] = useState<ReadingHistoryItem[]>([]);
   const [bookmarks, setBookmarks] = useState<BookmarkItem[]>([]);
   const [personalNotes, setPersonalNotes] = useState<PersonalNote[]>([]);
@@ -121,6 +123,7 @@ export default function App() {
   const refreshStorageData = () => {
     void loadStories().then(setStories);
     void loadAds().then(setAds);
+    api.genres().then(setGenres).catch(() => {}).finally(() => setGenresLoaded(true));
     void loadNotifications().then(setNotifications);
     setHistory(getReadingHistory());
     setBookmarks(getBookmarks());
@@ -148,7 +151,7 @@ export default function App() {
   const [routeReady, setRouteReady] = useState(false);
 
   const applyRoute = (list: Story[]) => {
-    const route = parseRoute(window.location.pathname);
+    const route = parseRoute(window.location.pathname, genres);
     const story = 'slug' in route ? list.find((s) => s.slug === route.slug) : undefined;
     if (route.type === 'chapter' && story) {
       setSelectedStory(story);
@@ -167,16 +170,16 @@ export default function App() {
 
   // Resolve the initial URL once stories have loaded; handle back/forward afterwards.
   useEffect(() => {
-    if (routeReady || stories.length === 0) return;
+    if (routeReady || stories.length === 0 || !genresLoaded) return;
     applyRoute(stories);
     setRouteReady(true);
-  }, [stories, routeReady]);
+  }, [stories, routeReady, genresLoaded]);
 
   useEffect(() => {
     const onPop = () => applyRoute(stories);
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
-  }, [stories]);
+  }, [stories, genres]);
 
   const desiredPath =
     currentView === 'reader' && selectedStory
@@ -267,6 +270,7 @@ export default function App() {
       {/* Global Navbar */}
       {currentView !== 'reader' && (
         <Navbar
+          genres={genres}
           currentLang={currentLang}
           onLanguageChange={setCurrentLang}
           stories={stories}
@@ -492,20 +496,7 @@ export default function App() {
                 </div>
 
                 <div className="flex flex-wrap gap-1.5">
-                  {[
-                    'Tiên Hiệp',
-                    'Kiếm Hiệp',
-                    'Huyền Huyễn',
-                    'Ngôn Tình',
-                    'Đô Thị',
-                    'Khoa Huyễn',
-                    'Võng Du',
-                    'Dị Năng',
-                    'Linh Dị',
-                    'Trọng Sinh',
-                    'Xuyên Không',
-                    'Hệ Thống',
-                  ].map((genre) => (
+                  {genres.map((genre) => (
                     <button
                       key={genre}
                       onClick={() => {
@@ -587,6 +578,7 @@ export default function App() {
         <Suspense fallback={null}>
         <AdminPortal
           stories={stories}
+          genres={genres}
           ads={ads}
           onDataChanged={refreshStorageData}
           onClose={() => {
@@ -601,6 +593,7 @@ export default function App() {
       {/* Footer */}
       {currentView !== 'reader' && (
         <Footer
+          genres={genres}
           onSelectGenre={(genre) => {
             setSelectedGenre(genre);
             setCurrentView('home');

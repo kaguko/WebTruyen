@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { Request, Response } from 'express';
 import * as db from './db';
-import { parseRoute, storyPath, chapterPath, genrePath, GENRES } from '../src/routes';
+import { parseRoute, storyPath, chapterPath, genrePath } from '../src/routes';
 
 const SITE_NAME = 'Truyện Basic';
 const DEFAULT_TITLE = `${SITE_NAME} - Đọc Truyện Online Tối Ưu, Cập Nhật Nhanh`;
@@ -31,7 +31,7 @@ interface Page {
 
 function buildPage(req: Request): Page {
   const base = siteUrl(req);
-  const route = parseRoute(req.path);
+  const route = parseRoute(req.path, db.getGenres());
   const home: Page = { status: 200, title: DEFAULT_TITLE, description: DEFAULT_DESC, path: '/', type: 'website' };
 
   if (route.type === 'home') {
@@ -156,7 +156,7 @@ const MAX_URLS = 50000;
 export function sitemap(req: Request, res: Response) {
   const base = siteUrl(req);
   const urls: { loc: string; lastmod?: string }[] = [{ loc: base + '/' }];
-  GENRES.forEach((g) => urls.push({ loc: base + genrePath(g) }));
+  db.getGenres().forEach((g) => urls.push({ loc: base + genrePath(g) }));
   for (const s of db.listStories()) {
     urls.push({ loc: base + storyPath(s.slug), lastmod: /^\d{4}-/.test(s.lastUpdated) ? s.lastUpdated.slice(0, 10) : undefined });
     for (const c of db.listChapterMetas(s.id, 0, 100000).items) {
