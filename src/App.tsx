@@ -531,8 +531,8 @@ export default function App() {
         </main>
       )}
 
-      {/* Shopee/sponsor popup: once per session when a reader opens a story page; they choose to click or close */}
-      {(currentView === 'detail' || currentView === 'reader') && <AdBanner placement="POPUP" ads={ads} />}
+      {/* Shopee/sponsor popup: once per session when a reader reaches the end of a chapter; they choose to click or close */}
+      {currentView === 'reader' && <AdBanner placement="POPUP" ads={ads} />}
 
       {/* User Cabinets Modal (History, Bookmarks, Notes, Offline) */}
       {isCabinetOpen && (

@@ -44,7 +44,7 @@ const PLACEMENT_LABEL: Record<string, string> = {
   SIDEBAR: 'Cột phải',
   IN_READER: 'Trong trang đọc',
   FLOAT_BOTTOM: 'Góc dưới nổi',
-  POPUP: 'Popup (1 lần/phiên)',
+  POPUP: 'Popup cuối chương (1 lần/phiên)',
 };
 const isShopeeUrl = (u: string) => /(^|\.)(shopee\.[a-z.]+|shp\.ee|shope\.ee)(\/|$|\?)/i.test(u.replace(/^https?:\/\//i, ''));
 const hostOf = (u: string) => {
@@ -1065,9 +1065,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               >
                 <option value="HEADER_BANNER">Đầu Trang (Header Banner)</option>
                 <option value="SIDEBAR">Cột Phải (Sidebar)</option>
-                <option value="IN_READER">Giữa Trang Đọc Truyện (In-Reader)</option>
-                <option value="FLOAT_BOTTOM">Góc Dưới Nổi (Float Bottom)</option>
-                <option value="POPUP">Popup khi vào trang truyện (hiện 1 lần mỗi phiên)</option>
+                <option value="IN_READER">Cuối Chương, trên nút Chương sau (In-Reader)</option>
+                <option value="FLOAT_BOTTOM">Góc Dưới Nổi, hiện ở trang chủ và trang đọc (Float Bottom)</option>
+                <option value="POPUP">Popup khi đọc hết chương (hiện 1 lần mỗi phiên)</option>
               </select>
             </div>
 

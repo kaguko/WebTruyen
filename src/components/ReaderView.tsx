@@ -666,8 +666,11 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
           })}
         </div>
 
-        {/* In-reader Ad / Shopee Affiliate banner */}
+        {/* In-reader Ad / Shopee Affiliate banner (end of chapter, right above the next-chapter button) */}
         <AdBanner placement="IN_READER" ads={ads} />
+
+        {/* Small dismissible floating card while reading */}
+        <AdBanner placement="FLOAT_BOTTOM" ads={ads} />
 
         {/* End of Chapter Navigation Controls */}
         <div className="mt-12 pt-8 border-t border-stone-200/60 dark:border-stone-800 flex items-center justify-between gap-3">
