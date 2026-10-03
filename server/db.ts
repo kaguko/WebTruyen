@@ -162,6 +162,11 @@ export const bumpAdClick = (id: string) => {
     `UPDATE ads SET data = json_set(data, '$.clicks', COALESCE(json_extract(data, '$.clicks'), 0) + 1) WHERE id = ?`,
   ).run(id);
 };
+export const bumpAdView = (id: string) => {
+  db.prepare(
+    `UPDATE ads SET data = json_set(data, '$.impressions', COALESCE(json_extract(data, '$.impressions'), 0) + 1) WHERE id = ?`,
+  ).run(id);
+};
 
 // ---- Notifications ----
 export const listNotifications = (): PushNotification[] =>

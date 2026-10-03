@@ -58,6 +58,7 @@ export const api = {
   download: (storyId: string) => request<Chapter[]>(`/stories/${storyId}/download`),
   countView: (storyId: string, n: number) => send('POST', `/stories/${storyId}/chapters/${n}/view`).catch(() => {}),
   ads: () => request<AdSlot[]>('/ads'),
+  adView: (id: string) => send('POST', `/ads/${id}/view`).catch(() => {}),
   adClick: (id: string) => send('POST', `/ads/${id}/click`).catch(() => {}),
   notifications: () => request<PushNotification[]>('/notifications'),
   comments: (storyId: string) => request<StoryComment[]>(`/stories/${storyId}/comments`),
